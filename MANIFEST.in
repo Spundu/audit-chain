@@ -1,0 +1,4 @@
+include LICENSE README.md
+graft python/tests
+graft vectors
+global-exclude *.py[cod]

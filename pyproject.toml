@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=77"]  # PEP 639 license string
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sealed-audit-chain"
+version = "0.1.0"
+description = "Tamper-evident, HMAC-sealed audit chain; byte-identical port of the TypeScript implementation."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+lint = ["ruff==0.16.9"]
+
+[tool.setuptools.packages.find]
+where = ["python"]
+include = ["audit_chain*"]
+
+[tool.setuptools.package-data]
+audit_chain = ["py.typed"]  # PEP 561: the package is fully annotated
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["python"]
+
+[tool.ruff.lint]
+# E/F pyflakes+pycodestyle, I import-sort, B bugbear, UP pyupgrade, S bandit
+select = ["E", "F", "I", "B", "UP", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"python/tests/**" = ["S101"]  # asserts are expected in tests

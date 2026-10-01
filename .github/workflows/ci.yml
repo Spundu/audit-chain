@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: TypeScript (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['22.x', '24.x', '26.x']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      # `npm ci` installs exactly the lockfile and runs the `prepare` hook, which builds dist/.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      # The committed vectors are the spec: they must be exactly what the generators produce. Deleting
+      # them first means a generator that silently stops writing shows up as a diff, not a pass.
+      - name: Vectors are up to date
+        run: rm vectors/*.json && npm run vectors && git diff --exit-code -- vectors/
+
+      # The tarball must carry the entrypoints and the normative vectors, and nothing test- or tool-only.
+      - name: Verify package contents
+        run: |
+          npm pack --dry-run --json > pack.json
+          node -e "
+            const files = require('./pack.json')[0].files.map((f) => f.path);
+            const need = ['dist/index.js', 'dist/index.d.ts', 'dist/json.js', 'dist/jsonl.js',
+              'vectors/jcs-vectors.json', 'vectors/audit-seal-vectors.json', 'LICENSE', 'README.md'];
+            const missing = need.filter((p) => !files.includes(p));
+            // An ALLOWLIST: the TypeScript build, its sources, the vectors and the three top-level files.
+            // Anything else (a Python build in dist/, a tool, a stray script) must never ship with npm.
+            const allowed = (p) => /^dist\/[^/]+\.(js|d\.ts|js\.map|d\.ts\.map)$/.test(p) ||
+              /^src\/[^/]+\.ts$/.test(p) || /^vectors\/[^/]+\.json$/.test(p) ||
+              ['LICENSE', 'README.md', 'package.json'].includes(p);
+            const stray = files.filter((p) => !allowed(p));
+            if (missing.length || stray.length) { console.error({ missing, stray }); process.exit(1); }
+          "
+
+      # The tests import ../src; this installs the PACKED tarball into an empty project and loads it
+      # the way a consumer would (require + ESM import + the shipped vectors).
+      - name: Consumer smoke test of the packed tarball
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/consumer"
+          cd "$RUNNER_TEMP/consumer"
+          npm init -y > /dev/null
+          npm install "$RUNNER_TEMP"/sealed-audit-chain-*.tgz
+          node "$GITHUB_WORKSPACE/scripts/consumer-smoke.mjs"
+
+  python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.13', '3.14']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: python -m pip install -e ".[test,lint]"
+
+      - name: Lint
+        run: ruff check python
+
+      - name: Test
+        run: pytest
+
+      - name: Wheel ships the typing marker
+        run: |
+          python -m pip wheel --no-deps -w "$RUNNER_TEMP/wheel" .
+          python -c "import glob, sys, zipfile; names = zipfile.ZipFile(glob.glob(sys.argv[1] + '/*.whl')[0]).namelist(); sys.exit(0 if 'audit_chain/py.typed' in names else 1)" "$RUNNER_TEMP/wheel"
+
+  parity:
+    name: Parity (Node ${{ matrix.node-version }} + Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['22.x', '24.x', '26.x']
+        python-version: ['3.12', '3.13', '3.14']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          npm ci
+          python -m pip install -e .
+
+      - name: Parity
+        env:
+          AUDIT_CHAIN_PYTHON: python
+        run: npm run test:parity

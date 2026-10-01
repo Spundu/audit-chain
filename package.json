@@ -1,0 +1,64 @@
+{
+  "name": "sealed-audit-chain",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Tamper-evident, HMAC-sealed audit chain with byte-identical TypeScript and Python implementations, proven by shared test vectors and a cross-language parity suite.",
+  "license": "MIT",
+  "keywords": [
+    "audit",
+    "audit-log",
+    "hash-chain",
+    "hmac",
+    "tamper-evident",
+    "jcs",
+    "rfc8785",
+    "canonical-json",
+    "cross-language",
+    "test-vectors"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./vectors/*.json": "./vectors/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.map",
+    "src",
+    "vectors",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "lint": "eslint src test scripts",
+    "test": "vitest run",
+    "test:parity": "vitest run --config vitest.parity.config.mts",
+    "vectors": "tsx scripts/emit-jcs-vectors.mts && tsx scripts/emit-audit-vectors.mts",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prepare": "npm run clean && npm run build"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24",
+    "eslint": "^10.11.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.70.1",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.1"
+  }
+}
