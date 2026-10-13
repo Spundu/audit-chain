@@ -1,6 +1,6 @@
 // The HMAC sealing keyring. `verifyChain` resolves a key by `writer_key_id`, so historical
 // entries stay verifiable across key rotation. Where the real key lives, and who can read it,
-// is the deployer's decision; see "Threat model & limitations" in the README.
+// is the deployer's decision; see THREAT-MODEL.md.
 
 /** Shortest HMAC key accepted for sealing or verifying. A short (or empty) key lets anyone forge. */
 export const MIN_KEY_BYTES = 16;
@@ -39,10 +39,22 @@ export function isUsableKey(key: unknown): key is Uint8Array {
 }
 
 /**
- * In-memory keyring for tests and local development only. It keeps its own copy of every key and hands
- * out copies, so wiping or reusing the caller's buffer later, or writing into a returned one, never
- * changes the key it seals and verifies with. Keys must be random bytes: a 16-character password
- * passes the length check with far less than 128 bits of secret.
+ * A copy of the key's bytes in memory of its own: exactly its length, never a view of the caller's
+ * buffer, and never in Node's shared Buffer pool (a small Buffer.from() copy lands there, next to
+ * other buffers, so wiping one of THOSE through its .buffer would zero this key too). Copying from the
+ * typed array itself reads its real length, whatever a subclass's length getter claims.
+ */
+function ownCopy(bytes: Uint8Array): Buffer {
+  const copy = new Uint8Array(bytes);
+  return Buffer.from(copy.buffer, copy.byteOffset, copy.byteLength);
+}
+
+/**
+ * Holds keys that are already in memory: test keys, or keys your code loaded from a secret manager at
+ * startup. (To fetch keys from a KMS on demand, implement KeyProvider.) It keeps its own copy of every
+ * key and hands out copies, so wiping or reusing the caller's buffer later, or writing into a returned
+ * one, never changes the key it seals and verifies with. Keys must be random bytes: a 16-character
+ * password passes the length check with far less than 128 bits of secret.
  */
 export class InMemoryKeyProvider implements KeyProvider {
   readonly #keys = new Map<string, Buffer>();
@@ -51,10 +63,11 @@ export class InMemoryKeyProvider implements KeyProvider {
   constructor(keys: Record<string, Uint8Array | string>, activeId: string) {
     for (const [id, key] of Object.entries(keys)) {
       const bytes: unknown = typeof key === 'string' ? Buffer.from(key, 'utf8') : key;
-      if (!isUsableKey(bytes)) {
+      const copy = bytes instanceof Uint8Array ? ownCopy(bytes) : null;
+      if (copy === null || !isUsableKey(copy)) {
         throw new Error(`key '${id}' must be at least ${MIN_KEY_BYTES} bytes (a Buffer, a Uint8Array or a UTF-8 string)`);
       }
-      this.#keys.set(id, Buffer.from(bytes)); // a copy of exactly these bytes, never a view of the caller's
+      this.#keys.set(id, copy);
     }
     if (!this.#keys.has(activeId)) {
       throw new Error(`activeId '${activeId}' is not present in the keyring`);
@@ -64,7 +77,7 @@ export class InMemoryKeyProvider implements KeyProvider {
 
   getKey(writerKeyId: string): Buffer | null {
     const key = this.#keys.get(writerKeyId);
-    return key === undefined ? null : Buffer.from(key);
+    return key === undefined ? null : ownCopy(key);
   }
 
   activeKeyId(): string {

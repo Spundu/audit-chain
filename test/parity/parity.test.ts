@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { CanonicalizationError, canonicalize } from '../../src/canonicalize.js';
 import type { KeyProvider } from '../../src/keys.js';
-import { GENESIS_HASH, sealEntry, type SealedEntry } from '../../src/seal.js';
+import { GENESIS_HASH, appendEntry, sealEntry, type SealedEntry } from '../../src/seal.js';
+import { isPlainObject } from '../../src/plain.js';
 import { verifyChain } from '../../src/verify.js';
 import { verifyJsonl } from '../../src/jsonl.js';
 import { parseJson } from '../../src/json.js';
@@ -75,6 +76,28 @@ function tsSeal(text: string): SealOutcome {
   try {
     const core = { payload: value, prev_hash: GENESIS_HASH, seq: 0, writer_key_id: KEY_ID };
     const sealed = sealEntry(core, Buffer.from(KEY_HEX, 'hex'));
+    return { ok: true, entry_hash: sealed.entry_hash, entry_hmac: sealed.entry_hmac };
+  } catch (err) {
+    if (err instanceof CanonicalizationError && err.cause === undefined) return { ok: false, phase: 'domain' };
+    return { ok: false, phase: 'crash', error: String(err) };
+  }
+}
+
+// The writers themselves: each text that is a JSON object is the record, appended after a real previous
+// entry. This compares what users call (appendEntry / append_entry), including how null is sealed.
+function tsAppend(text: string): SealOutcome {
+  let value: unknown;
+  try {
+    value = parseJson(text);
+  } catch {
+    return { ok: false, phase: 'parse' };
+  }
+  if (!isPlainObject(value)) return { ok: false, phase: 'not-an-object' };
+  if (value.entry_hash !== undefined || value.entry_hmac !== undefined) return { ok: false, phase: 'derived-fields' };
+  const key = Buffer.from(KEY_HEX, 'hex');
+  const keys: KeyProvider = { getKey: (id) => (id === KEY_ID ? key : null), activeKeyId: () => KEY_ID };
+  try {
+    const sealed = appendEntry(appendEntry(null, { n: 0 }, keys), value, keys);
     return { ok: true, entry_hash: sealed.entry_hash, entry_hmac: sealed.entry_hmac };
   } catch (err) {
     if (err instanceof CanonicalizationError && err.cause === undefined) return { ok: false, phase: 'domain' };
@@ -233,6 +256,7 @@ describe('cross-language parity (TypeScript vs Python)', () => {
     py = runPython({
       canonicalize: canonicalCases.map((c) => c.input),
       seal: { key_hex: KEY_HEX, writer_key_id: KEY_ID },
+      append: { key_hex: KEY_HEX, writer_key_id: KEY_ID },
       verify: verifyCases.map((c) => c.input),
       verify_jsonl: jsonlCases.map((c) => c.input),
     });
@@ -257,6 +281,18 @@ describe('cross-language parity (TypeScript vs Python)', () => {
     });
     expect(diverged).toEqual([]);
     expect(sealed).toBeGreaterThan(500); // the comparison is not vacuous: most texts seal
+  });
+
+  it(`appends every JSON object among the ${canonicalCases.length} texts to identical entries with both writers`, () => {
+    let appended = 0;
+    const diverged = canonicalCases.flatMap((c, i) => {
+      const ts = tsAppend(c.input);
+      const p = py.append[i];
+      if (ts.ok) appended += 1;
+      return sealAgree(ts, p) ? [] : [{ case: c.label, input: c.input.slice(0, 200), ts, py: p }];
+    });
+    expect(diverged).toEqual([]);
+    expect(appended).toBeGreaterThan(100); // the comparison is not vacuous
   });
 
   it(`reaches the same verdict on ${verifyCases.length} chains, and neither side throws`, () => {

@@ -158,3 +158,50 @@ def test_verify_rejects_uppercase_entry_hmac() -> None:
     entries = _build_chain()
     entries[1] = {**entries[1], "entry_hmac": entries[1]["entry_hmac"].upper()}
     assert not verify_chain(entries, KEYRING).ok
+
+
+# -- what append_entry refuses, exactly as TypeScript's appendEntry does ------------------------------
+
+_HEAD = {"seq": 0, "entry_hash": "a" * 64}
+
+
+@pytest.mark.parametrize(
+    "prev",
+    [
+        {**_HEAD, "seq": "0"},  # a BIGINT read back as a string
+        {**_HEAD, "seq": None},
+        {**_HEAD, "seq": 0.5},
+        {**_HEAD, "seq": -1},
+        {**_HEAD, "seq": True},
+        {**_HEAD, "seq": 2**53},
+        {"seq": 0},
+        {**_HEAD, "entry_hash": "A" * 64},
+        {**_HEAD, "entry_hash": "a" * 63},
+        "head",
+        7,
+    ],
+)
+def test_a_prev_that_could_only_lead_to_a_broken_chain_is_a_type_error(prev: object) -> None:
+    with pytest.raises(TypeError):
+        append_entry(prev, {"v": 1}, KEY, writer_key_id="k1")  # type: ignore[arg-type]
+
+
+def test_a_whole_float_seq_counts_as_that_integer_as_in_typescript() -> None:
+    entry = append_entry({"seq": 1.0, "entry_hash": "a" * 64}, {"v": 1}, KEY, writer_key_id="k1")
+    assert entry["seq"] == 2 and type(entry["seq"]) is int
+
+
+def test_the_writer_key_id_must_be_a_str() -> None:
+    with pytest.raises(TypeError):
+        append_entry(None, {"v": 1}, KEY, writer_key_id=1)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("draft", [[("v", 1)], "v", 7, None])
+def test_a_draft_that_is_not_a_mapping_is_a_type_error(draft: object) -> None:
+    with pytest.raises(TypeError):
+        append_entry(None, draft, KEY, writer_key_id="k1")  # type: ignore[arg-type]
+
+
+def test_seal_core_wants_a_dict() -> None:
+    with pytest.raises(TypeError):
+        seal_core([("seq", 0)], KEY)  # type: ignore[arg-type]

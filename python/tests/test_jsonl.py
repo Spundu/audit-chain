@@ -150,15 +150,13 @@ def test_a_16_byte_key_seals_and_verifies_and_15_is_refused() -> None:
         seal_core({"seq": 0}, b"k" * 15)
 
 
-def test_prune_none_drops_none_members_deeply_but_keeps_none_in_lists() -> None:
-    from audit_chain import prune_none
-
-    assert prune_none({"a": None, "b": {"c": None, "d": 1}, "e": [None, {"f": None}]}) == {
-        "b": {"d": 1},
-        "e": [None, {}],
-    }
-    entry = append_entry(None, {"v": 1, "gone": None, "kept": [None]}, KEY, writer_key_id="k1")
-    assert "gone" not in entry and entry["kept"] == [None]
+def test_a_none_member_is_sealed_as_json_null_like_typescript_null() -> None:
+    # The same record must seal to the same entry in both languages: None is JSON null, never "absent".
+    record = {"v": 1, "reason": None, "nested": {"x": None}, "kept": [None]}
+    entry = append_entry(None, record, KEY, writer_key_id="k1")
+    assert entry["reason"] is None and entry["nested"] == {"x": None} and entry["kept"] == [None]
+    assert b'"reason":null' in to_jsonl_line(entry)
+    assert verify_chain([entry], {"k1": KEY}).ok
 
 
 def test_to_jsonl_line_is_exactly_utf8_canonical_plus_lf() -> None:

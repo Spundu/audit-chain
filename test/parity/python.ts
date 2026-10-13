@@ -15,7 +15,7 @@ export type CanonicalOutcome =
 
 export type SealOutcome =
   | { ok: true; entry_hash: string; entry_hmac: string }
-  | { ok: false; phase: 'parse' | 'domain' | 'crash'; error?: string };
+  | { ok: false; phase: 'parse' | 'domain' | 'not-an-object' | 'derived-fields' | 'crash'; error?: string };
 
 export type VerifyOutcome =
   | { threw: false; ok: boolean; last_seq: number }
@@ -37,6 +37,7 @@ export interface WorkerResponse {
   audit_chain: string;
   canonicalize: CanonicalOutcome[];
   seal: SealOutcome[];
+  append: SealOutcome[];
   verify: VerifyOutcome[];
   verify_jsonl: VerifyOutcome[];
 }
@@ -44,6 +45,7 @@ export interface WorkerResponse {
 export function runPython(request: {
   canonicalize: string[];
   seal?: { key_hex: string; writer_key_id: string }; // also seal each canonicalize text
+  append?: { key_hex: string; writer_key_id: string }; // also append each text that is a JSON object
   verify: VerifyCase[];
   verify_jsonl: JsonlCase[];
 }): WorkerResponse {

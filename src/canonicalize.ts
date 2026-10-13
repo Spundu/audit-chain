@@ -17,6 +17,7 @@
 // "__proto__" key sets the prototype instead of creating a member. Both silently changed the bytes.
 
 import { isOutOfResources } from './stack.js';
+import { isPlainObject } from './plain.js';
 
 export const MAX_DEPTH = 100;
 /** Largest canonical form, in UTF-8 bytes (1 MiB). Normative: vectors/jcs-vectors.json repeats it. */
@@ -53,11 +54,6 @@ function serializeString(s: string, budget: Budget): string {
   // throws a SyntaxError instead of the usual RangeError (see stack.ts).
   if (!s.isWellFormed()) throw new CanonicalizationError('string contains a lone surrogate');
   return spend(budget, JSON.stringify(s));
-}
-
-function isPlainObject(value: object): value is Record<string, unknown> {
-  const proto: unknown = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
 }
 
 function serialize(value: unknown, depth: number, budget: Budget): string {
