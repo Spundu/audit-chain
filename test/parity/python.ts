@@ -7,6 +7,10 @@ export type CanonicalOutcome =
   | { ok: true; hex: string }
   | { ok: false; phase: 'parse' | 'domain' | 'crash'; error?: string };
 
+export type SealOutcome =
+  | { ok: true; entry_hash: string; entry_hmac: string }
+  | { ok: false; phase: 'parse' | 'domain' | 'crash'; error?: string };
+
 export type VerifyOutcome =
   | { threw: false; ok: boolean; last_seq: number }
   | { threw: true; error: string };
@@ -25,12 +29,14 @@ export interface JsonlCase {
 
 export interface WorkerResponse {
   canonicalize: CanonicalOutcome[];
+  seal: SealOutcome[];
   verify: VerifyOutcome[];
   verify_jsonl: VerifyOutcome[];
 }
 
 export function runPython(request: {
   canonicalize: string[];
+  seal?: { key_hex: string; writer_key_id: string }; // also seal each canonicalize text
   verify: VerifyCase[];
   verify_jsonl: JsonlCase[];
 }): WorkerResponse {

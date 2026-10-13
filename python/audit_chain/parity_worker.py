@@ -5,12 +5,15 @@ TEXT (or raw JSONL BYTES), parsed here by Python's own ``json`` module, because 
 cross-language situation: a chain written by one implementation and read by the other. The TypeScript
 side of the parity suite (``test/parity``) runs the same inputs and compares results byte for byte.
 
-Request (every list optional):
+Request (every member optional):
   canonicalize: [json_text, ...]
+  seal:         {"key_hex": hex, "writer_key_id": id}: also seal each canonicalize text, as the payload
+                of a genesis entry, with seal_core
   verify:       [{"chain": json_text, "keyring": {id: key_hex}, "anchor"?: {"count", "last_hash"}}, ...]
   verify_jsonl: [{"data_hex": hex_bytes, "keyring": {...}, "anchor"?: {...}}, ...]
 Response:
   canonicalize: [{"ok": true, "hex": utf8_hex} | {"ok": false, "phase": "parse" | "domain" | "crash"}]
+  seal:         [{"ok": true, "entry_hash": hex, "entry_hmac": hex} | {"ok": false, "phase": ...}]
   verify, verify_jsonl: [{"threw": false, "ok": bool, "last_seq": int} | {"threw": true, "error": str}]
 
 Run: python -m audit_chain.parity_worker < request.json
@@ -24,12 +27,13 @@ from typing import Any
 
 from .canonical import CanonicalizationError, canonicalize
 from .jsonl import verify_jsonl
+from .seal import GENESIS_HASH, seal_core
 from .verify import ChainAnchor, VerifyResult, verify_chain
 
 Runner = Callable[[dict[str, bytes], ChainAnchor | None], VerifyResult]
 
 
-def _canonical_hex(text: str) -> dict[str, Any]:
+def _outcome(text: str, produce: Callable[[Any], dict[str, Any]]) -> dict[str, Any]:
     # A parse failure and a domain rejection are both legitimate refusals. Anything else escaping
     # canonicalize is a crash, which the parity suite always reports.
     try:
@@ -37,7 +41,7 @@ def _canonical_hex(text: str) -> dict[str, Any]:
     except Exception:  # noqa: BLE001 -- JSONDecodeError, int-digit limit, RecursionError: all "not JSON"
         return {"ok": False, "phase": "parse"}
     try:
-        return {"ok": True, "hex": canonicalize(value).encode("utf-8").hex()}
+        return {"ok": True, **produce(value)}
     except CanonicalizationError as exc:
         # canonicalize wraps an unreadable value as CanonicalizationError FROM another exception.
         # Nothing json.loads produces is unreadable, so here a cause means a crash, not a refusal.
@@ -46,6 +50,21 @@ def _canonical_hex(text: str) -> dict[str, Any]:
         return {"ok": False, "phase": "crash", "error": f"wrapped {type(exc.__cause__).__name__}"}
     except Exception as exc:  # noqa: BLE001 -- report, never crash the worker
         return {"ok": False, "phase": "crash", "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _canonical_hex(value: Any) -> dict[str, Any]:
+    return {"hex": canonicalize(value).encode("utf-8").hex()}
+
+
+def _sealer(key: bytes, writer_key_id: str) -> Callable[[Any], dict[str, Any]]:
+    # seal_core, not append_entry: append_entry deliberately drops None members (it reads a Python
+    # None as TypeScript's undefined), so only the sealing primitive is comparable byte for byte.
+    def seal(value: Any) -> dict[str, Any]:
+        core = {"payload": value, "prev_hash": GENESIS_HASH, "seq": 0, "writer_key_id": writer_key_id}
+        sealed = seal_core(core, key)
+        return {"entry_hash": sealed["entry_hash"], "entry_hmac": sealed["entry_hmac"]}
+
+    return seal
 
 
 def _verdict(case: dict[str, Any], run: Runner) -> dict[str, Any]:
@@ -69,8 +88,12 @@ def _jsonl_runner(case: dict[str, Any]) -> Runner:
 
 def main() -> None:
     request = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+    texts = request.get("canonicalize", [])
+    seal = request.get("seal")
+    sealer = _sealer(bytes.fromhex(seal["key_hex"]), seal["writer_key_id"]) if seal else None
     response = {
-        "canonicalize": [_canonical_hex(t) for t in request.get("canonicalize", [])],
+        "canonicalize": [_outcome(t, _canonical_hex) for t in texts],
+        "seal": [_outcome(t, sealer) for t in texts] if sealer else [],
         "verify": [_verdict(c, _chain_runner(c)) for c in request.get("verify", [])],
         "verify_jsonl": [_verdict(c, _jsonl_runner(c)) for c in request.get("verify_jsonl", [])],
     }

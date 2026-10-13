@@ -1,12 +1,16 @@
 """Audit chain: seal byte-identical to TS (cross-language vectors) + tamper detection."""
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import pathlib
+from typing import Any
 
 import pytest
 from _derivations import derived_cases, mismatches, size_vector_cases
 
+from audit_chain.canonical import MAX_DEPTH, CanonicalizationError
 from audit_chain.seal import GENESIS_HASH, append_entry, seal_core
 from audit_chain.verify import verify_chain
 
@@ -24,6 +28,49 @@ def test_seal_matches_cross_language_vectors() -> None:
         sealed = seal_core(v["core"], KEY)
         assert sealed["entry_hash"] == v["entry_hash"], v["name"]
         assert sealed["entry_hmac"] == v["entry_hmac"], v["name"]
+
+
+# Every value the JCS vectors accept, with the canonical text they pin for it: seal_core must hash exactly
+# those bytes. The expected bytes are built from the pinned text, never from canonicalize(), so a sealer
+# that serializes any other way (json.dumps with sort_keys, say: code-point key order, "1.0") fails here.
+_JCS = json.loads((_REPO / "vectors" / "jcs-vectors.json").read_text(encoding="utf-8"))
+_SEALABLE = [
+    *[(f"value:{v['name']}", v["value"], v["expected_canonical"]) for v in _JCS["vectors"]],
+    *[
+        (f"text:{v['name']}", json.loads(v["json_text"]), v["expected_canonical"])
+        for v in _JCS["text_vectors"]
+        if v["expected_canonical"] is not None
+    ],
+]
+
+
+def _container_depth(value: Any) -> int:
+    """How many lists/dicts are nested inside each other: 0 for a scalar, 1 for [] or {}."""
+    depth, level = 0, [value]
+    while containers := [v for v in level if isinstance(v, dict | list)]:
+        depth += 1
+        level = [c for v in containers for c in (v.values() if isinstance(v, dict) else v)]
+    return depth
+
+
+@pytest.mark.parametrize(("name", "value", "canonical"), _SEALABLE, ids=[n for n, _, _ in _SEALABLE])
+def test_seal_core_seals_exactly_the_canonical_bytes(name: str, value: Any, canonical: str) -> None:
+    core = {"payload": value, "prev_hash": GENESIS_HASH, "seq": 0, "writer_key_id": "k1"}
+    if 1 + _container_depth(value) > MAX_DEPTH:  # the core object adds one level of nesting
+        with pytest.raises(CanonicalizationError):
+            seal_core(core, KEY)
+        return
+    expected = f'{{"payload":{canonical},"prev_hash":"{GENESIS_HASH}","seq":0,"writer_key_id":"k1"}}'.encode()
+    sealed = seal_core(core, KEY)
+    assert sealed["entry_hash"] == hashlib.sha256(expected).hexdigest(), name
+    assert sealed["entry_hmac"] == hmac.new(KEY, expected, hashlib.sha256).hexdigest(), name
+
+
+def test_the_sealable_set_reaches_the_cases_a_naive_sealer_gets_wrong() -> None:
+    texts = [c for _, _, c in _SEALABLE]
+    assert any(c.startswith("[1,100,") for c in texts)  # integral floats (1.0, 1e2) seal as integers
+    assert any(chr(0xD83D) in c or chr(0x1F600) in c for c in texts)  # astral keys: UTF-16 order
+    assert sum(1 + _container_depth(v) > MAX_DEPTH for _, v, _ in _SEALABLE) >= 1  # the depth edge
 
 
 def test_the_verify_vector_set_is_non_empty() -> None:

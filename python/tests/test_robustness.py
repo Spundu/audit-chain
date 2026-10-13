@@ -333,13 +333,22 @@ def test_the_parity_worker_counts_a_wrapped_crash_as_a_crash(monkeypatch: pytest
         raise CanonicalizationError("value cannot be read as JSON") from RuntimeError("bug")
 
     monkeypatch.setattr(worker, "canonicalize", wrapped_crash)
-    assert worker._canonical_hex("1")["phase"] == "crash"
+    assert worker._outcome("1", worker._canonical_hex)["phase"] == "crash"
 
     def domain(_value):  # noqa: ANN001, ANN202
         raise CanonicalizationError("number is not an integer")
 
     monkeypatch.setattr(worker, "canonicalize", domain)
-    assert worker._canonical_hex("1")["phase"] == "domain"
+    assert worker._outcome("1", worker._canonical_hex)["phase"] == "domain"
+
+    # The seal path classifies the same way.
+    import audit_chain.seal as seal
+
+    seal_one = worker._sealer(KEY, "k1")
+    monkeypatch.setattr(seal, "canonicalize", wrapped_crash)
+    assert worker._outcome("1", seal_one)["phase"] == "crash"
+    monkeypatch.setattr(seal, "canonicalize", domain)
+    assert worker._outcome("1", seal_one)["phase"] == "domain"
 
 
 @pytest.mark.parametrize(

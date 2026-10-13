@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { CanonicalizationError, canonicalize } from '../../src/canonicalize.js';
 import type { KeyProvider } from '../../src/keys.js';
-import type { SealedEntry } from '../../src/seal.js';
+import { GENESIS_HASH, sealEntry, type SealedEntry } from '../../src/seal.js';
 import { verifyChain } from '../../src/verify.js';
 import { verifyJsonl } from '../../src/jsonl.js';
 import { parseJson } from '../../src/json.js';
@@ -20,7 +20,7 @@ import {
   prng,
   randomTexts,
 } from './corpus.js';
-import { runPython, type CanonicalOutcome, type JsonlCase, type VerifyCase, type VerifyOutcome } from './python.js';
+import { runPython, type CanonicalOutcome, type JsonlCase, type SealOutcome, type VerifyCase, type VerifyOutcome } from './python.js';
 
 // THE HEADLINE TEST. The same raw JSON texts go through TypeScript (parseJson -> canonicalize) and
 // Python (json.loads -> canonicalize). Both must reject, or both must accept with IDENTICAL UTF-8
@@ -61,6 +61,31 @@ function tsCanonical(text: string): CanonicalOutcome {
     if (err instanceof CanonicalizationError && err.cause === undefined) return { ok: false, phase: 'domain' };
     return { ok: false, phase: 'crash', error: String(err) };
   }
+}
+
+// The sealing primitive, on the same texts: the parsed value is the payload of a genesis entry. (Not
+// appendEntry: Python's append_entry deliberately drops None members, reading None as undefined.)
+function tsSeal(text: string): SealOutcome {
+  let value: unknown;
+  try {
+    value = parseJson(text);
+  } catch {
+    return { ok: false, phase: 'parse' };
+  }
+  try {
+    const core = { payload: value, prev_hash: GENESIS_HASH, seq: 0, writer_key_id: KEY_ID };
+    const sealed = sealEntry(core, Buffer.from(KEY_HEX, 'hex'));
+    return { ok: true, entry_hash: sealed.entry_hash, entry_hmac: sealed.entry_hmac };
+  } catch (err) {
+    if (err instanceof CanonicalizationError && err.cause === undefined) return { ok: false, phase: 'domain' };
+    return { ok: false, phase: 'crash', error: String(err) };
+  }
+}
+
+function sealAgree(ts: SealOutcome, py: SealOutcome | undefined): boolean {
+  if (py === undefined) return false;
+  if (ts.ok || py.ok) return ts.ok && py.ok && ts.entry_hash === py.entry_hash && ts.entry_hmac === py.entry_hmac;
+  return ts.phase !== 'crash' && py.phase !== 'crash';
 }
 
 // Agreement: identical bytes, or both refuse. WHY each refuses may differ (Python's parser rejects a
@@ -207,6 +232,7 @@ describe('cross-language parity (TypeScript vs Python)', () => {
   beforeAll(() => {
     py = runPython({
       canonicalize: canonicalCases.map((c) => c.input),
+      seal: { key_hex: KEY_HEX, writer_key_id: KEY_ID },
       verify: verifyCases.map((c) => c.input),
       verify_jsonl: jsonlCases.map((c) => c.input),
     });
@@ -219,6 +245,18 @@ describe('cross-language parity (TypeScript vs Python)', () => {
       return agree(ts, p) ? [] : [{ case: c.label, input: c.input, ts, py: p }];
     });
     expect(diverged).toEqual([]);
+  });
+
+  it(`seals the same ${canonicalCases.length} JSON texts to identical entries (or both refuse)`, () => {
+    let sealed = 0;
+    const diverged = canonicalCases.flatMap((c, i) => {
+      const ts = tsSeal(c.input);
+      const p = py.seal[i];
+      if (ts.ok) sealed += 1;
+      return sealAgree(ts, p) ? [] : [{ case: c.label, input: c.input.slice(0, 200), ts, py: p }];
+    });
+    expect(diverged).toEqual([]);
+    expect(sealed).toBeGreaterThan(500); // the comparison is not vacuous: most texts seal
   });
 
   it(`reaches the same verdict on ${verifyCases.length} chains, and neither side throws`, () => {

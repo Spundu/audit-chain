@@ -1,9 +1,10 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { CanonicalizationError, MAX_CANONICAL_BYTES, MAX_DEPTH, canonicalize } from '../src/canonicalize.js';
 import { JsonSyntaxError, parseJson } from '../src/json.js';
+import { GENESIS_HASH, sealEntry } from '../src/seal.js';
 
 // The committed cross-language vectors. This test keeps the file HONEST vs the authoritative TS
 // canonicalize; python/tests/test_canonical_vectors.py asserts the Python port reproduces the same bytes.
@@ -96,4 +97,38 @@ describe('JCS cross-language vectors', () => {
       expect(createHash('sha256').update(canonical, 'utf8').digest('hex')).toBe(v.expected_sha256);
     });
   }
+});
+
+// The sealer must hash exactly the canonical bytes the vectors pin. The expected bytes are built from the
+// pinned text, never from canonicalize(), as in python/tests/test_seal.py.
+describe('sealEntry seals exactly the canonical bytes of every vector value', () => {
+  const KEY = Buffer.alloc(32, 0x11);
+  const containerDepth = (value: unknown): number => {
+    let depth = 0;
+    let level: unknown[] = [value];
+    for (;;) {
+      const containers = level.filter((v): v is object => v !== null && typeof v === 'object');
+      if (containers.length === 0) return depth;
+      depth += 1;
+      level = containers.flatMap((v) => (Array.isArray(v) ? v : Object.values(v)));
+    }
+  };
+  const sealable: [string, unknown, string][] = [
+    ...vectors.map((v): [string, unknown, string] => [`value:${v.name}`, v.value, v.expected_canonical]),
+    ...file.text_vectors.flatMap((v): [string, unknown, string][] =>
+      v.expected_canonical === null ? [] : [[`text:${v.name}`, parseJson(v.json_text), v.expected_canonical]],
+    ),
+  ];
+
+  it.each(sealable)('%s', (_name, value, canonical) => {
+    const core = { payload: value, prev_hash: GENESIS_HASH, seq: 0, writer_key_id: 'k1' };
+    if (1 + containerDepth(value) > MAX_DEPTH) {
+      expect(() => sealEntry(core, KEY)).toThrow(CanonicalizationError); // the core object adds a level
+      return;
+    }
+    const expected = `{"payload":${canonical},"prev_hash":"${GENESIS_HASH}","seq":0,"writer_key_id":"k1"}`;
+    const sealed = sealEntry(core, KEY);
+    expect(sealed.entry_hash).toBe(createHash('sha256').update(expected, 'utf8').digest('hex'));
+    expect(sealed.entry_hmac).toBe(createHmac('sha256', KEY).update(expected, 'utf8').digest('hex'));
+  });
 });
