@@ -40,8 +40,8 @@ function grindBaseChain(): Record<string, unknown>[] {
   for (let seq = 0; seq < 3; seq += 1) {
     for (let nonce = 0; ; nonce += 1) {
       const entry = seal({
-        v: 1, seq, chain: 'vault', call_id: `c${seq}`, producer: 'vault', phase: 'approval',
-        prev_hash: prev, writer_key_id: 'vault-k1', nonce,
+        v: 1, seq, event: 'payment.approval', request_id: `r${seq}`, service: 'payments',
+        prev_hash: prev, writer_key_id: 'k1', nonce,
       });
       if ((entry.entry_hash as string).startsWith('00') && (entry.entry_hmac as string).startsWith('00')) {
         chain.push(entry);
@@ -95,7 +95,7 @@ export const head = full[2]!.entry_hash as string;
 
 export const GENESIS = '0'.repeat(64);
 export function oneEntry(extra: Record<string, unknown>): Record<string, unknown>[] {
-  return [seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'vault-k1', ...extra })];
+  return [seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'k1', ...extra })];
 }
 export function omit(core: Record<string, unknown>, field: string): Record<string, unknown> {
   const { [field]: _dropped, ...rest } = core;
@@ -109,10 +109,10 @@ export function rehashedAt1(changes: Record<string, unknown>): unknown[] {
   return chain;
 }
 export const K2 = Buffer.alloc(32, 0x5a);
-export const TWO_KEYS = { 'vault-k1': KEY_HEX, k2: K2.toString('hex') };
+export const TWO_KEYS = { 'k1': KEY_HEX, k2: K2.toString('hex') };
 /** Entry 0 sealed with k1; entry 1 labelled k2 and sealed with `k1or2`. */
 export function rotated(k1or2: Buffer): unknown[] {
-  const e0 = seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'vault-k1', note: 'k1' });
+  const e0 = seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'k1', note: 'k1' });
   return [e0, sealWith({ seq: 1, prev_hash: e0.entry_hash, writer_key_id: 'k2', note: 'k2' }, k1or2)];
 }
 

@@ -2,7 +2,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { CanonicalizationError, MAX_CANONICAL_BYTES, canonicalize } from './canonicalize.js';
 import { isLowerHex } from './hex.js';
 import { isUsableKey, requireKeyProvider, type KeyProvider } from './keys.js';
-import { GENESIS_HASH } from './record.js';
+import { GENESIS_HASH } from './seal.js';
 import { isOutOfResources } from './stack.js';
 
 /** External corroboration that pins the chain's length + head, detecting tail truncation. */

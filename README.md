@@ -322,7 +322,7 @@ import { InMemoryKeyProvider, JsonlChainWriter, verifyJsonl } from 'sealed-audit
 const keys = new InMemoryKeyProvider({ k1: keyBytes }, 'k1'); // >= 16 bytes; tests only
 // `published` is the { count, lastHash } you stored OUTSIDE the file at the last append. The writer
 // verifies the file first, then refuses it if it no longer holds that entry (truncated or rolled back).
-const writer = new JsonlChainWriter('audit.jsonl', keys, 'agent-pipe', published);
+const writer = new JsonlChainWriter('audit.jsonl', keys, published);
 const entry = writer.append(draft);
 published = { count: entry.seq + 1, lastHash: entry.entry_hash }; // store it outside the file again
 
@@ -346,20 +346,19 @@ if not result.ok:  # not `assert`: python -O strips asserts, and this check must
     raise RuntimeError(f"refusing to append: {result.error}")
 
 entries = parse_jsonl(data).entries
-entry = append_entry(entries[-1] if entries else None, draft, key_bytes, writer_key_id="k1", producer="vault")
+entry = append_entry(entries[-1] if entries else None, draft, key_bytes, writer_key_id="k1")
 with open("audit.jsonl", "ab") as f:
     f.write(to_jsonl_line(entry))
 ```
 
-The TypeScript package also has a Zod schema for the example record shape (`src/record.ts`), which
-its writer enforces. When it **starts**, `JsonlChainWriter` verifies the existing file with its own
-keys (it doesn't re-read the file between appends; see "Single writer"), and it **refuses to start** on
-a chain that doesn't verify (a forged or torn last line, a
-tampered entry). Otherwise it would seal new entries onto a head that can never verify. `readChain`
-reads the file again, so to act on exactly the bytes you verified, keep them and use
-`parseJsonl(bytes).entries`. The Python
-side is the seal and verify core only: `append_entry` has no schema, treats a `None` member as
-absent, and requires the caller to stamp `producer`.
+The chain seals **any JSON object**: there is no record schema in either language. If your records
+have a shape, check it before you append. When it **starts**, `JsonlChainWriter` verifies the
+existing file with its own keys (it doesn't re-read the file between appends; see "Single writer"),
+and it **refuses to start** on a chain that doesn't verify (a forged or torn last line, a tampered
+entry). Otherwise it would seal new entries onto a head that can never verify. `readChain(path,
+keys, anchor?)` reads the file once, verifies it, and returns the entries only if it verifies, so
+what you act on is exactly what was verified. The Python side is the seal and verify core only:
+`append_entry` treats a `None` member as absent, as TypeScript treats an `undefined` one.
 
 `verifyChain` and `verifyJsonl` (`verify_chain` / `verify_jsonl`) are both thin wrappers over one
 incremental engine, `verifyEntries` / `verify_entries`, which takes entries one at a time and keeps
@@ -377,8 +376,8 @@ an exception), and a malformed step is a `TypeError`.
 If the source itself fails (`next` throws, the iterator raises), the exception propagates: a timed-out
 cursor is an infrastructure error, not evidence of tampering.
 
-Either language verifies a chain the other wrote. But `JsonlChainWriter` only **continues** chains
-whose last entry matches its own record schema; for any other shape it refuses with a clear error.
+Either language verifies a chain the other wrote, and `JsonlChainWriter` continues any chain that
+verifies, whichever writer sealed it.
 Keys are bytes in both languages, and their minimum length is measured in bytes: in TypeScript a
 `Uint8Array` (such as a `Buffer`), in Python `bytes` or `bytearray`. Anything else a provider returns
 (a `KeyObject`, an `ArrayBuffer`, a `DataView`, a string) is no key at all: verification reports an
@@ -429,7 +428,7 @@ What it does **not** give you:
   distinct key (`writer_key_id`) per chain **and verify each chain with a keyring that holds only that
   chain's key ids** (its rotation keys included). A shared keyring that knows both chains' keys accepts
   either chain's file in place of the other, and the writer would continue it. Alternatively, check an
-  identifying field (such as `chain`) yourself.
+  identifying field (a log name you put in every record, say) yourself.
 - **Key management is out of scope.** Where the key lives, who can read it, and how it rotates are the
   deployer's problem. `InMemoryKeyProvider` is for tests. Keys shorter than 16 bytes are refused (for
   sealing) or treated as unknown (for verifying). The key must never be readable by the producers
@@ -475,7 +474,7 @@ What it does **not** give you:
 
 ```
 src/            TypeScript: canonicalize, json (strict parser), jsonl, seal, verify, keys, writer,
-                record (example schema), hex and stack (internal helpers), index (the package entry)
+                hex and stack (internal helpers), index (the package entry)
 test/           vitest: unit + vector tests; test/parity/ is the cross-language suite
 python/         Python: audit_chain (canonical, jsonl, seal, verify, parity_worker) + pytest tests
 vectors/        the normative spec (generated; do not hand-edit)

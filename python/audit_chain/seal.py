@@ -1,8 +1,9 @@
 """Seal primitive (port of src/seal.ts).
 
 entry_hash = sha256(JCS(core)); entry_hmac = HMAC-SHA256(key, sameBytes). Byte-identical to the TS
-impl (proven by vectors/audit-seal-vectors.json). append_entry assigns seq/prev_hash/writer_key_id/producer
-and deep-drops None (matching JSON.stringify dropping `undefined`)."""
+impl (proven by vectors/audit-seal-vectors.json). The chain seals any JSON object: there is no record
+schema. append_entry assigns seq/prev_hash/writer_key_id and deep-drops None (matching JSON.stringify
+dropping `undefined`)."""
 from __future__ import annotations
 
 import hashlib
@@ -57,15 +58,11 @@ def next_state(prev: dict[str, Any] | None) -> tuple[int, str]:
 
 
 def append_entry(
-    prev: dict[str, Any] | None, draft: dict[str, Any], key: bytes,
-    *, writer_key_id: str, producer: str,
+    prev: dict[str, Any] | None, draft: dict[str, Any], key: bytes, *, writer_key_id: str,
 ) -> dict[str, Any]:
-    """Assign seq/prev_hash/writer_key_id/producer, deep-prune None, and seal.
+    """Assign seq/prev_hash/writer_key_id (replacing any the draft carries), deep-prune None, and seal.
 
-    The writer stamps `producer` from the channel the draft arrived on; there is no default. Unlike
-    the TypeScript writer this one has no schema: a None member means "absent" and is dropped."""
+    A None member means "absent" and is dropped, as an `undefined` member is in TypeScript."""
     seq, prev_hash = next_state(prev)
-    core = prune_none({
-        **draft, "producer": producer, "seq": seq, "prev_hash": prev_hash, "writer_key_id": writer_key_id,
-    })
+    core = prune_none({**draft, "seq": seq, "prev_hash": prev_hash, "writer_key_id": writer_key_id})
     return seal_core(core, key)

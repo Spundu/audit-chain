@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { CanonicalizationError, canonicalize } from '../../src/canonicalize.js';
 import type { KeyProvider } from '../../src/keys.js';
-import type { SealedAuditEntry } from '../../src/record.js';
+import type { SealedEntry } from '../../src/seal.js';
 import { verifyChain } from '../../src/verify.js';
 import { verifyJsonl } from '../../src/jsonl.js';
 import { parseJson } from '../../src/json.js';
@@ -34,6 +34,7 @@ const jcs = parseJson(readFileSync(join(vectorsDir, 'jcs-vectors.json'), 'utf8')
 };
 const seal = parseJson(readFileSync(join(vectorsDir, 'audit-seal-vectors.json'), 'utf8')) as {
   key_hex: string;
+  key_id: string;
   vectors: { name: string; core: unknown }[];
   verify_vectors: {
     name: string;
@@ -78,7 +79,7 @@ function tsVerify(c: VerifyCase): VerifyOutcome {
   };
   try {
     const anchor = c.anchor && { count: c.anchor.count, lastHash: c.anchor.last_hash };
-    const r = verifyChain(parseJson(c.chain) as SealedAuditEntry[], keys, anchor);
+    const r = verifyChain(parseJson(c.chain) as SealedEntry[], keys, anchor);
     return { threw: false, ok: r.ok, last_seq: r.lastSeq };
   } catch (err) {
     return { threw: true, error: String(err) };
@@ -114,10 +115,10 @@ const canonicalCases: Labeled<string>[] = [
   ...randomTexts(0x5eed, 1500).map((t, i) => ({ label: `random#${i}`, input: t })),
 ];
 
-const sealKeyring = { 'vault-k1': seal.key_hex };
+const sealKeyring = { [seal.key_id]: seal.key_hex };
 const jsonlCases: Labeled<JsonlCase>[] = seal.jsonl_size_vectors.map((v) => ({
   label: `vector:${v.name}`,
-  input: { data_hex: Buffer.from(v.prefix + v.unit.repeat(v.count) + v.suffix, 'utf8').toString('hex'), keyring: { 'vault-k1': seal.key_hex } },
+  input: { data_hex: Buffer.from(v.prefix + v.unit.repeat(v.count) + v.suffix, 'utf8').toString('hex'), keyring: sealKeyring },
 }));
 jsonlCases.push(...seal.jsonl_vectors.map((v) => ({
   label: `vector:${v.name}`,

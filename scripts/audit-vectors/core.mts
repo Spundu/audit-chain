@@ -48,7 +48,7 @@ const LOOK_ALIKE_VECTORS = DERIVED_NAMES.flatMap((name) =>
 
 // ---- derived names NESTED in the core: sealed content (verifies), and added without the key (breaks) --
 const nestedCore = (meta: Record<string, unknown>): Record<string, unknown> => ({
-  seq: 0, prev_hash: GENESIS, writer_key_id: 'vault-k1', meta,
+  seq: 0, prev_hash: GENESIS, writer_key_id: 'k1', meta,
 });
 const withMeta = seal(nestedCore({ a: 1, b: 2 })); // "entry_hash"/"entry_hmac" sort between a and b
 const NESTED_DERIVED_VECTORS = [
@@ -101,14 +101,14 @@ const PLAIN_DOMAIN_VECTORS = ([
   ['lone-surrogate', String.fromCharCode(0xd800)],
 ] as const).map(([label, value]) => ({
   name: `${label}-sealed-over-a-plain-serializer`,
-  chain: [sealedOverPlainJson({ seq: 0, prev_hash: GENESIS, writer_key_id: 'vault-k1', amount: value })],
+  chain: [sealedOverPlainJson({ seq: 0, prev_hash: GENESIS, writer_key_id: 'k1', amount: value })],
   expect: NEVER,
 }));
 
 // ---- brackets inside strings, and a null key id against an empty-string key id ----------------------
 const MISC_VECTORS = [
-  { name: 'unbalanced-brackets-inside-strings-verify', chain: [seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'vault-k1', note: '['.repeat(150), other: '{'.repeat(150) })], expect: { ok: true, last_seq: 0 } },
-  { name: 'resealed-null-writer-key-id-with-empty-id-in-keyring', chain: resealAt1((c) => ({ ...c, writer_key_id: null })), keyring: { 'vault-k1': KEY_HEX, '': KEY_HEX }, expect: BROKEN_AT_1 },
+  { name: 'unbalanced-brackets-inside-strings-verify', chain: [seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'k1', note: '['.repeat(150), other: '{'.repeat(150) })], expect: { ok: true, last_seq: 0 } },
+  { name: 'resealed-null-writer-key-id-with-empty-id-in-keyring', chain: resealAt1((c) => ({ ...c, writer_key_id: null })), keyring: { 'k1': KEY_HEX, '': KEY_HEX }, expect: BROKEN_AT_1 },
 ];
 
 // ---- the chain fields are TOP-LEVEL members only ----------------------------------------------------
@@ -117,10 +117,10 @@ const MISC_VECTORS = [
 // first member with that name in document order (a token scan, a regex, a depth-first search) reads the
 // decoys instead, and then accepts a keyless deletion of entry 1 (entry 2's decoys "link" to entry 0).
 function chainWithDecoys(): Record<string, unknown>[] {
-  const e0 = seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'vault-k1', action: 'login' });
-  const e1 = seal({ seq: 1, prev_hash: e0.entry_hash, writer_key_id: 'vault-k1', action: 'transfer', amount: '5000.00' });
+  const e0 = seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'k1', action: 'login' });
+  const e1 = seal({ seq: 1, prev_hash: e0.entry_hash, writer_key_id: 'k1', action: 'transfer', amount: '5000.00' });
   const e2 = seal({
-    seq: 2, prev_hash: e1.entry_hash, writer_key_id: 'vault-k1', action: 'search',
+    seq: 2, prev_hash: e1.entry_hash, writer_key_id: 'k1', action: 'search',
     args: { prev_hash: e0.entry_hash, seq: 1, writer_key_id: 'other' }, list: [{ seq: 1, prev_hash: e0.entry_hash }],
   });
   return [e0, e1, e2];
@@ -128,7 +128,7 @@ function chainWithDecoys(): Record<string, unknown>[] {
 const decoys = chainWithDecoys();
 // Derived names nested under a member that sorts BEFORE the root ones ("args" < "entry_hash"): a
 // first-match text read or strip finds the nested copy first.
-const withArgs = seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'vault-k1', args: { a: 1, b: 2 } });
+const withArgs = seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'k1', args: { a: 1, b: 2 } });
 // Members named after Object.prototype properties are ordinary members (a JS verifier must not trip on them).
 const PROTO_NAMES = ['hasOwnProperty', 'toString', 'valueOf', 'constructor', 'toJSON', 'isPrototypeOf'];
 const TOP_LEVEL_VECTORS = [
@@ -136,21 +136,21 @@ const TOP_LEVEL_VECTORS = [
   { name: 'nested-chain-field-decoys-middle-entry-deleted', chain: [decoys[0], decoys[2]], expect: { ok: false, last_seq: 0 } },
   {
     name: 'sealed-derived-names-nested-before-the-root-ones-verify',
-    chain: [seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'vault-k1', args: { a: 1, entry_hash: 'a'.repeat(64), entry_hmac: 'b'.repeat(64) } })],
+    chain: [seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'k1', args: { a: 1, entry_hash: 'a'.repeat(64), entry_hmac: 'b'.repeat(64) } })],
     expect: { ok: true, last_seq: 0 },
   },
   { name: 'unsealed-own-hash-nested-before-the-root-one', chain: [{ ...withArgs, args: { a: 1, b: 2, entry_hash: withArgs.entry_hash } }], expect: NEVER },
   { name: 'unsealed-own-hmac-nested-before-the-root-one', chain: [{ ...withArgs, args: { a: 1, b: 2, entry_hmac: withArgs.entry_hmac } }], expect: NEVER },
   {
     name: 'members-named-after-prototype-properties-verify',
-    chain: [seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'vault-k1', ...Object.fromEntries(PROTO_NAMES.map((n) => [n, n])), nested: Object.fromEntries(PROTO_NAMES.map((n) => [n, 1])) })],
+    chain: [seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'k1', ...Object.fromEntries(PROTO_NAMES.map((n) => [n, n])), nested: Object.fromEntries(PROTO_NAMES.map((n) => [n, 1])) })],
     expect: { ok: true, last_seq: 0 },
   },
   ...PROTO_NAMES.map((n) => ({ name: `unsealed-member-named-${n}`, chain: withFieldAt(1, n, 'attacker-controlled'), expect: BROKEN_AT_1 })),
   // writer_key_id compares EXACTLY: a trailing space, tab, line feed or NUL is another (unknown) id.
   ...([['trailing-space', ' '], ['trailing-tab', String.fromCharCode(9)], ['trailing-lf', LF], ['nul-suffix', NUL]] as const).map(([label, suffix]) => ({
     name: `resealed-writer-key-id-${label}`,
-    chain: resealAt1((c) => ({ ...c, writer_key_id: `vault-k1${suffix}` })),
+    chain: resealAt1((c) => ({ ...c, writer_key_id: `k1${suffix}` })),
     expect: BROKEN_AT_1,
   })),
 ];

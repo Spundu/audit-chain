@@ -10,27 +10,28 @@ interface Vector {
   core: unknown;
 }
 
-// Representative cores: nested agent/decision/result objects, the vault-only fields
-// (nonce/recap_hash/action_hash), unicode in a nested field, and the genesis-linked first entry.
+// Representative cores: an example audit record (any JSON object can be sealed) with nested actor,
+// decision and result objects, hash-like fields, unicode in a nested field, and the genesis-linked
+// first entry.
 export const VECTORS: Vector[] = [
   {
     name: 'genesis-approval-minimal',
     core: {
-      v: 1, seq: 0, chain: 'vault', call_id: 'c1', producer: 'vault',
-      phase: 'approval', prev_hash: '0'.repeat(64), writer_key_id: 'vault-k1',
+      v: 1, seq: 0, event: 'payment.approval', request_id: 'r1', service: 'payments',
+      prev_hash: '0'.repeat(64), writer_key_id: 'k1',
     },
   },
   {
-    name: 'money-post-nested',
+    name: 'payment-settled-nested',
     core: {
-      v: 1, seq: 1, chain: 'vault', call_id: 'c2', session_id: 's1',
-      agent: { name: 'vault', kind: 'vault' }, producer: 'vault',
-      ts_unix_ms: 1_700_000_000_000, boot_id: 'boot-xyz', host_id: 'host-1',
-      phase: 'post', tool: 'payments.request', tool_kind: 'money',
-      action_hash: 'a'.repeat(64), recap_hash: 'r'.repeat(64), nonce: 'example-nonce',
-      decision: { tier: 'YELLOW', action: 'executed', source: 'vault', reason: 'approved' },
-      result: { status: 'ok', duration_ms: 120, spend_settled: '19.00' },
-      prev_hash: 'e'.repeat(64), writer_key_id: 'vault-k1',
+      v: 1, seq: 1, event: 'payment.settled', request_id: 'r2', session_id: 's1',
+      actor: { name: 'alice', role: 'admin' }, service: 'payments',
+      ts_unix_ms: 1_700_000_000_000, instance_id: 'i-xyz', host_id: 'host-1',
+      operation: 'payments.capture', category: 'money',
+      request_hash: 'a'.repeat(64), document_hash: 'r'.repeat(64), nonce: 'example-nonce',
+      decision: { level: 'review', outcome: 'executed', by: 'bob', reason: 'approved' },
+      result: { status: 'ok', duration_ms: 120, amount_pence: 1900 },
+      prev_hash: 'e'.repeat(64), writer_key_id: 'k1',
     },
   },
   {
@@ -38,16 +39,16 @@ export const VECTORS: Vector[] = [
     // below the top level are ordinary members.
     name: 'null-members-and-nested-derived-names',
     core: {
-      v: 1, seq: 0, chain: 'vault', call_id: 'c0', producer: 'vault', prev_hash: '0'.repeat(64), writer_key_id: 'vault-k1',
+      v: 1, seq: 0, event: 'note', request_id: 'r0', service: 'payments', prev_hash: '0'.repeat(64), writer_key_id: 'k1',
       x: null, meta: { entry_hash: 'e'.repeat(64), entry_hmac: 'm' }, list: [null, { entry_hmac: 'n' }],
     },
   },
   {
     name: 'unicode-in-nested-reason',
     core: {
-      v: 1, seq: 2, chain: 'vault', call_id: 'c3', producer: 'vault', phase: 'approval',
-      decision: { tier: 'RED', action: 'deny', source: 'vault', reason: 'café — 日本語 🎉' },
-      prev_hash: 'f'.repeat(64), writer_key_id: 'vault-k1',
+      v: 1, seq: 2, event: 'payment.approval', request_id: 'r3', service: 'payments',
+      decision: { level: 'blocked', outcome: 'denied', by: 'policy', reason: 'café — 日本語 🎉' },
+      prev_hash: 'f'.repeat(64), writer_key_id: 'k1',
     },
   },
 ];
@@ -99,13 +100,13 @@ export const STRUCTURAL_VECTORS = [
   {
     name: 'resealed-numeric-writer-key-id',
     chain: resealAt1((c) => ({ ...c, writer_key_id: 1 })),
-    keyring: { 'vault-k1': KEY_HEX, '1': KEY_HEX },
+    keyring: { 'k1': KEY_HEX, '1': KEY_HEX },
     expect: BROKEN_AT_1,
   },
-  { name: 'resealed-unknown-writer-key-id', chain: resealAt1((c) => ({ ...c, writer_key_id: 'vault-k2' })), expect: BROKEN_AT_1 },
+  { name: 'resealed-unknown-writer-key-id', chain: resealAt1((c) => ({ ...c, writer_key_id: 'unknown-key' })), expect: BROKEN_AT_1 },
   { name: 'key-of-15-bytes-is-unknown', chain: oneEntrySealedWith('short', Buffer.alloc(15, 7)), keyring: { short: Buffer.alloc(15, 7).toString('hex') }, expect: { ok: false, last_seq: -1 } },
   { name: 'key-of-exactly-16-bytes-verifies', chain: oneEntrySealedWith('min', Buffer.alloc(16, 7)), keyring: { min: Buffer.alloc(16, 7).toString('hex') }, expect: { ok: true, last_seq: 0 } },
-  { name: 'resealed-writer-key-id-list', chain: resealAt1((c) => ({ ...c, writer_key_id: ['vault-k1'] })), expect: BROKEN_AT_1 },
+  { name: 'resealed-writer-key-id-list', chain: resealAt1((c) => ({ ...c, writer_key_id: ['k1'] })), expect: BROKEN_AT_1 },
   {
     name: 'resealed-writer-key-id-missing',
     chain: resealAt1(({ writer_key_id: _w, ...c }) => c),
@@ -197,7 +198,7 @@ export const ANCHOR_VECTORS = [
   // LOOSE TYPE MATCHING: links, positions, key ids and anchor fields compare exactly (all resealed).
   { name: 'resealed-prev-hash-wrapped-in-array', chain: resealAt1((c) => ({ ...c, prev_hash: [c.prev_hash] })), expect: BROKEN_AT_1 },
   { name: 'resealed-seq-wrapped-in-array', chain: resealAt1((c) => ({ ...c, seq: [1] })), expect: BROKEN_AT_1 },
-  { name: 'resealed-writer-key-id-case-variant', chain: resealAt1((c) => ({ ...c, writer_key_id: 'VAULT-K1' })), expect: BROKEN_AT_1 },
+  { name: 'resealed-writer-key-id-case-variant', chain: resealAt1((c) => ({ ...c, writer_key_id: 'K1' })), expect: BROKEN_AT_1 },
   { name: 'first-entry-genesis-spelled-0', chain: [seal({ ...coreOf(full[0]!), prev_hash: '0' })], expect: { ok: false, last_seq: -1 } },
   { name: 'anchor-count-wrapped-in-array', chain: full, anchor: { count: [3], last_hash: head }, expect: { ok: false, last_seq: 2 } },
   { name: 'anchor-last-hash-wrapped-in-array', chain: full, anchor: { count: 3, last_hash: [head] }, expect: { ok: false, last_seq: 1 } },

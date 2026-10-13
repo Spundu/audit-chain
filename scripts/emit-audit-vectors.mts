@@ -53,7 +53,7 @@ const DERIVATIONS: Derivations = {
   max_depth: 2,
 };
 
-const KEYRING = { 'vault-k1': KEY_HEX };
+const KEYRING = { 'k1': KEY_HEX };
 assertUniqueNames([...verifyVectors, ...jsonlVectors, ...sizeVectors]);
 const baseCases: Case[] = [
   ...verifyVectors,
@@ -90,7 +90,7 @@ const out = {
     'each of inserted_lines_hex at index 1; expect ok false, last_seq 0. case_count: the number of cases, base and derived; a harness that reaches a different number ' +
     'is not applying the rules.',
   key_hex: KEY_HEX,
-  key_id: 'vault-k1',
+  key_id: 'k1',
   derivations: DERIVATIONS,
   case_count: allCases.length,
   vectors: VECTORS.map((v) => {

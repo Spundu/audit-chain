@@ -1,7 +1,6 @@
 import { MAX_CANONICAL_BYTES, MAX_DEPTH, canonicalize } from './canonicalize.js';
 import { parseJson } from './json.js';
 import type { KeyProvider } from './keys.js';
-import type { SealedAuditEntry } from './record.js';
 import { isOutOfResources } from './stack.js';
 import { verifyEntries, type ChainAnchor, type VerifyResult } from './verify.js';
 
@@ -151,6 +150,6 @@ export function jsonlLineCount(data: Uint8Array): number {
 }
 
 /** One canonical-JSONL line (UTF-8 text including the trailing newline) for a sealed entry. */
-export function toJsonlLine(entry: SealedAuditEntry | Record<string, unknown>): string {
+export function toJsonlLine(entry: Record<string, unknown>): string {
   return `${canonicalize(entry)}\n`;
 }

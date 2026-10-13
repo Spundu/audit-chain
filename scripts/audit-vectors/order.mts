@@ -15,8 +15,8 @@ const NEVER = { ok: false, last_seq: -1 };
 const cp = (...points: number[]): string => String.fromCodePoint(...points);
 const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
 
-/** Entry 0 edited WITHOUT the key: call_id changed, so its entry_hash and entry_hmac are stale. */
-export const forged0: Record<string, unknown> = { ...full[0]!, call_id: 'cX' };
+/** Entry 0 edited WITHOUT the key: request_id changed, so its entry_hash and entry_hmac are stale. */
+export const forged0: Record<string, unknown> = { ...full[0]!, request_id: 'rX' };
 /** The same forgery with entry_hash recomputed: only the HMAC catches it. */
 const rehashedForged0 = { ...forged0, entry_hash: sha256(canonicalize(coreOf(forged0))) };
 
@@ -37,7 +37,7 @@ const CROSS_ENTRY_ORDER_VECTORS = [
     chain: [forged0, full[1], { ...full[2], ...change }],
     expect: NEVER,
   })),
-  { name: 'rehashed-forged-first-entry-then-stale-hash-entry', chain: [rehashedForged0, full[1], { ...full[2], call_id: 'cY' }], expect: NEVER },
+  { name: 'rehashed-forged-first-entry-then-stale-hash-entry', chain: [rehashedForged0, full[1], { ...full[2], request_id: 'rY' }], expect: NEVER },
 ];
 
 // AN EMPTY KEYRING knows no key: a valid chain, and a keyless forgery whose hashes and links were all
@@ -81,17 +81,17 @@ function sealedOverUnlimitedJcs(core: Record<string, unknown>): Record<string, u
   const text = JSON.stringify(Object.fromEntries(Object.keys(core).sort().map((k) => [k, core[k]])));
   return { ...core, entry_hash: sha256(text), entry_hmac: createHmac('sha256', key).update(text, 'utf8').digest('hex') };
 }
-const atDepthLimit = { seq: 0, prev_hash: GENESIS, writer_key_id: 'vault-k1', deep: nest(MAX_DEPTH - 1, 0) };
-const overDepthLimit = { seq: 0, prev_hash: GENESIS, writer_key_id: 'vault-k1', deep: nest(MAX_DEPTH, 0) };
+const atDepthLimit = { seq: 0, prev_hash: GENESIS, writer_key_id: 'k1', deep: nest(MAX_DEPTH - 1, 0) };
+const overDepthLimit = { seq: 0, prev_hash: GENESIS, writer_key_id: 'k1', deep: nest(MAX_DEPTH, 0) };
 if (sealedOverUnlimitedJcs(atDepthLimit).entry_hash !== seal(atDepthLimit).entry_hash) {
   throw new Error('depth vectors: the hand-built JCS text is not canonical');
 }
-const SEALED_1900 = seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'vault-k1', amount_cents: 1900 });
+const SEALED_1900 = seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'k1', amount_cents: 1900 });
 const ULP_NEIGHBOURS: [string, number][] = [['above', 1900.0000000000002], ['below', 1899.9999999999998]];
 for (const [, value] of ULP_NEIGHBOURS) if (Number.isInteger(value)) throw new Error(`${value} is an integer`);
 const FFFD = cp(0xfffd);
 function sealedWithFffdThenLone(place: 'key' | 'value', lone: string, after = ''): Record<string, unknown> {
-  const sealed = seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'vault-k1', m: place === 'key' ? { [FFFD + after]: 1 } : FFFD + after });
+  const sealed = seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'k1', m: place === 'key' ? { [FFFD + after]: 1 } : FFFD + after });
   return { ...sealed, m: place === 'key' ? { [lone + after]: 1 } : lone + after };
 }
 const VALUE_DOMAIN_VECTORS = [
@@ -109,7 +109,7 @@ const VALUE_DOMAIN_VECTORS = [
   })),
   {
     name: 'entry-nested-101-deep-at-index-1',
-    chain: [full[0], sealedOverUnlimitedJcs({ seq: 1, prev_hash: full[0]!.entry_hash, writer_key_id: 'vault-k1', deep: nest(MAX_DEPTH, 0) })],
+    chain: [full[0], sealedOverUnlimitedJcs({ seq: 1, prev_hash: full[0]!.entry_hash, writer_key_id: 'k1', deep: nest(MAX_DEPTH, 0) })],
     expect: BROKEN_AT_1,
   },
   // A NON-integer right next to an integer is outside the domain too. Each carries the seal of the
@@ -124,7 +124,7 @@ const VALUE_DOMAIN_VECTORS = [
   // and U+FFFF. Canonical order is by UTF-16 unit: U+10000, U+1F600, U+1F601, U+E000, U+FFFF.
   {
     name: 'astral-keys-inserted-out-of-order-verify',
-    chain: [seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'vault-k1', m: { [cp(0x1f601)]: 1, [cp(0x1f600)]: 2, [cp(0x10000)]: 3, [cp(0xe000)]: 4, [cp(0xffff)]: 5 } })],
+    chain: [seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'k1', m: { [cp(0x1f601)]: 1, [cp(0x1f600)]: 2, [cp(0x10000)]: 3, [cp(0xe000)]: 4, [cp(0xffff)]: 5 } })],
     expect: { ok: true, last_seq: 0 },
   },
 ];
@@ -194,8 +194,8 @@ function sealedWithKeys(steps: [string, Buffer][]): Record<string, unknown>[] {
 const NFC_ID = `k${cp(0xe9)}`;
 const NFD_ID = `ke${cp(0x301)}`;
 const KEYRING_SEMANTICS_VECTORS = [
-  { name: 'rotation-back-to-an-earlier-key-verifies', chain: sealedWithKeys([['vault-k1', key], ['k2', K2], ['vault-k1', key]]), keyring: TWO_KEYS, expect: { ok: true, last_seq: 2 } },
-  { name: 'unused-short-key-in-the-keyring-is-harmless', chain: full, keyring: { 'vault-k1': KEY_HEX, short: Buffer.alloc(15, 1).toString('hex') }, expect: { ok: true, last_seq: 2 } },
+  { name: 'rotation-back-to-an-earlier-key-verifies', chain: sealedWithKeys([['k1', key], ['k2', K2], ['k1', key]]), keyring: TWO_KEYS, expect: { ok: true, last_seq: 2 } },
+  { name: 'unused-short-key-in-the-keyring-is-harmless', chain: full, keyring: { 'k1': KEY_HEX, short: Buffer.alloc(15, 1).toString('hex') }, expect: { ok: true, last_seq: 2 } },
   { name: 'key-id-differing-only-by-normalization-is-unknown', chain: sealedWithKeys([[NFD_ID, key]]), keyring: { [NFC_ID]: KEY_HEX }, expect: NEVER },
   { name: 'empty-chain-with-empty-keyring-verifies', chain: [], keyring: {}, expect: { ok: true, last_seq: -1 } },
 ];

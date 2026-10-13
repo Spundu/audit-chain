@@ -3,41 +3,26 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { ZodError } from 'zod';
 import * as api from '../src/index.js';
 import { CanonicalizationError, canonicalize } from '../src/canonicalize.js';
 import { parseJson } from '../src/json.js';
 import { jsonlEntryAt, jsonlLineCount, parseJsonl, toJsonlLine, verifyJsonl } from '../src/jsonl.js';
 import { InMemoryKeyProvider } from '../src/keys.js';
-import type { SealedAuditEntry } from '../src/record.js';
-import { appendEntry, sealEntry, type AuditDraft } from '../src/seal.js';
+import { appendEntry, sealEntry, type SealedEntry } from '../src/seal.js';
 import { verifyChain, verifyEntries } from '../src/verify.js';
 import { JsonlChainWriter, readChain } from '../src/writer.js';
+import { draft } from './draft.js';
 
 const KEY = Buffer.alloc(32, 7);
 const keys = new InMemoryKeyProvider({ k1: KEY }, 'k1');
 const LF = String.fromCharCode(10);
 
-function draft(i: number, over: Record<string, unknown> = {}): AuditDraft {
-  return {
-    v: 1,
-    chain: 'brain',
-    call_id: `c${i}`,
-    session_id: 's',
-    agent: { name: 'n', kind: 'main' },
-    ts_unix_ms: i,
-    boot_id: 'b',
-    host_id: 'h',
-    phase: 'pre',
-    ...over,
-  } as AuditDraft;
-}
 
 function chainBytes(n: number): Buffer {
-  let prev: SealedAuditEntry | null = null;
+  let prev: SealedEntry | null = null;
   let out = '';
   for (let i = 0; i < n; i += 1) {
-    prev = appendEntry(prev, draft(i), keys, 'agent-pipe');
+    prev = appendEntry(prev, draft(i), keys);
     out += toJsonlLine(prev);
   }
   return Buffer.from(out, 'utf8');
@@ -75,17 +60,17 @@ describe('JSONL verification is streaming: junk costs no more than its first bad
     withTmp((path) => {
       writeFileSync(path, chainBytes(3));
       appendFileSync(path, Buffer.alloc(32 * 2 ** 20, 10));
-      expect(() => new JsonlChainWriter(path, keys, 'agent-pipe')).toThrow(/refusing to append.*entry 3/);
+      expect(() => new JsonlChainWriter(path, keys)).toThrow(/refusing to append.*entry 3/);
     });
   });
 });
 
 describe('writer-stamped fields', () => {
-  it('seq, prev_hash, writer_key_id and producer come from the writer, never from the draft', () => {
-    const e0 = appendEntry(null, draft(0), keys, 'agent-pipe');
-    const forged = { ...draft(1), seq: 5, prev_hash: 'f'.repeat(64), writer_key_id: 'other', producer: 'vault' };
-    const e1 = appendEntry(e0, forged as unknown as AuditDraft, keys, 'agent-pipe');
-    expect(e1).toMatchObject({ seq: 1, prev_hash: e0.entry_hash, writer_key_id: 'k1', producer: 'agent-pipe' });
+  it('seq, prev_hash and writer_key_id come from the writer, never from the draft', () => {
+    const e0 = appendEntry(null, draft(0), keys);
+    const forged = { ...draft(1), seq: 5, prev_hash: 'f'.repeat(64), writer_key_id: 'other' };
+    const e1 = appendEntry(e0, forged, keys);
+    expect(e1).toMatchObject({ seq: 1, prev_hash: e0.entry_hash, writer_key_id: 'k1' });
     expect(verifyChain([e0, e1], keys).ok).toBe(true);
   });
 });
@@ -93,25 +78,18 @@ describe('writer-stamped fields', () => {
 describe('non-ASCII content through seal and writer', () => {
   it('round-trips accented, CJK and astral characters through the writer and verifies', () => {
     withTmp((path) => {
-      const w = new JsonlChainWriter(path, keys, 'agent-pipe');
+      const w = new JsonlChainWriter(path, keys);
       const text = `caf${String.fromCharCode(0xe9)} ${String.fromCharCode(0x65e5)} ${String.fromCodePoint(0x1f600)}`;
-      w.append({ ...draft(0), decision: { tier: 'green', action: 'allow', source: text, reason: text } });
+      w.append({ ...draft(0), [text]: text, nested: { note: text } });
       expect(verifyJsonl(readFileSync(path), keys).ok).toBe(true);
-      expect(() => new JsonlChainWriter(path, keys, 'agent-pipe')).not.toThrow();
-      expect(readChain(path)[0]!.decision!.reason).toBe(text);
+      expect(() => new JsonlChainWriter(path, keys)).not.toThrow();
+      expect(readChain(path, keys)[0]).toMatchObject({ [text]: text, nested: { note: text } });
     });
   });
 });
 
-describe('sealEntry and readChain validate the schema themselves', () => {
-  const core = { ...draft(0), seq: 0, prev_hash: '0'.repeat(64), writer_key_id: 'k1', producer: 'agent-pipe' };
-
-  it('sealEntry refuses an unknown field and a pre-filled entry_hash', () => {
-    expect(() => sealEntry({ ...core, surprise: 1 } as never, KEY)).toThrow();
-    expect(() => sealEntry({ ...core, entry_hash: 'a'.repeat(64) } as never, KEY)).toThrow();
-  });
-
-  it('readChain refuses a verified file whose entry is not this schema', () => {
+describe('readChain returns only what verifies', () => {
+  it('returns a verified entry of any record shape, sealed by any writer', () => {
     withTmp((path) => {
       const foreign = { seq: 0, prev_hash: '0'.repeat(64), writer_key_id: 'k1', note: 'other shape' };
       const bytes = canonicalize(foreign);
@@ -121,62 +99,16 @@ describe('sealEntry and readChain validate the schema themselves', () => {
         entry_hmac: createHmac('sha256', KEY).update(bytes, 'utf8').digest('hex'),
       };
       writeFileSync(path, toJsonlLine(sealed));
-      expect(verifyJsonl(readFileSync(path), keys).ok).toBe(true);
-      expect(() => readChain(path)).toThrow();
+      expect(readChain(path, keys)).toEqual([sealed]);
     });
   });
-});
 
-describe('record schema constraints the writer enforces', () => {
-  it.each([
-    ['session_id missing', { session_id: undefined }],
-    ['negative ts_unix_ms', { ts_unix_ms: -5 }],
-    ['fractional ts_unix_ms', { ts_unix_ms: 1.5 }],
-    ['malformed action_hash', { action_hash: 'not-a-hash' }],
-    ['uppercase action_hash', { action_hash: 'A'.repeat(64) }],
-    ['schema version 2', { v: 2 }],
-    ['unknown chain', { chain: 'other' }],
-    ['unknown phase', { phase: 'later' }],
-    ['unknown tool_kind', { tool_kind: 'magic' }],
-    ['unknown agent kind', { agent: { name: 'n', kind: 'god' } }],
-    ['negative duration_ms', { result: { status: 'ok', duration_ms: -1 } }],
-    ['unknown result status', { result: { status: 'maybe', duration_ms: 1 } }],
-    ['unknown decision tier', { decision: { tier: 'blue', action: 'allow', source: 's', reason: 'r' } }],
-    ['fractional duration_ms', { result: { status: 'ok', duration_ms: 1.5 } }],
-    ['redactions as a string', { redactions: 'a' }],
-    ['redactions holding a number', { redactions: [1] }],
-    ['a numeric output_digest', { result: { status: 'ok', duration_ms: 1, output_digest: 1 } }],
-    ['a numeric spend_settled', { result: { status: 'ok', duration_ms: 1, spend_settled: 1 } }],
-    ['a numeric agent parent', { agent: { name: 'n', kind: 'main', parent: 5 } }],
-    ['a numeric tool', { tool: 5 }],
-    ['a numeric args_canonical', { args_canonical: 5 }],
-  ])('refuses %s with a schema error', (_label, over) => {
-    // A ZodError specifically: a missing schema rule must not hide behind a later canonicalize failure.
-    expect(() => appendEntry(null, draft(0, over), keys, 'agent-pipe')).toThrow(ZodError);
-  });
-
-  it('accepts a draft carrying every optional field with a valid value', () => {
-    const every = draft(0, {
-      agent: { name: 'n', kind: 'subagent', parent: 'p' },
-      tool: 't',
-      tool_kind: 'read',
-      args_canonical: '{}',
-      redactions: ['a', 'b'],
-      decision: { tier: 'green', action: 'allow', source: 's', reason: 'r' },
-      action_hash: 'a'.repeat(64),
-      result: { status: 'ok', duration_ms: 1, output_digest: 'd', spend_settled: '1.00' },
+  it('refuses a file holding an entry that was never sealed', () => {
+    withTmp((path) => {
+      const { entry_hmac: _m, ...unsealed } = appendEntry(null, draft(0), keys);
+      writeFileSync(path, toJsonlLine(unsealed));
+      expect(() => readChain(path, keys)).toThrow(/does not verify: it breaks at entry 0/);
     });
-    const entry = appendEntry(null, every, keys, 'agent-pipe');
-    expect(entry).toMatchObject({ redactions: ['a', 'b'], agent: { parent: 'p' }, result: { output_digest: 'd', spend_settled: '1.00' } });
-    expect(verifyChain([entry], keys).ok).toBe(true);
-  });
-
-  it('refuses a producer the writer does not know', () => {
-    expect(() => appendEntry(null, draft(0), keys, 'brain' as never)).toThrow();
-  });
-
-  it('keeps AUDIT_SCHEMA_VERSION and the schema literal in step', () => {
-    expect(appendEntry(null, draft(0, { v: api.AUDIT_SCHEMA_VERSION }), keys, 'agent-pipe').v).toBe(api.AUDIT_SCHEMA_VERSION);
   });
 });
 
@@ -195,8 +127,7 @@ describe('package entry point', () => {
   it.each([
     'canonicalize', 'CanonicalizationError', 'MAX_CANONICAL_BYTES', 'MAX_DEPTH', 'parseJson', 'JsonSyntaxError',
     'parseJsonl', 'verifyJsonl', 'toJsonlLine', 'InMemoryKeyProvider', 'MIN_KEY_BYTES', 'GENESIS_HASH',
-    'AuditCoreSchema', 'SealedAuditEntrySchema', 'appendEntry', 'sealEntry', 'verifyChain', 'verifyEntries',
-    'JsonlChainWriter', 'readChain', 'AUDIT_SCHEMA_VERSION',
+    'nextState', 'appendEntry', 'sealEntry', 'verifyChain', 'verifyEntries', 'JsonlChainWriter', 'readChain',
   ])('exports %s', (name) => {
     expect((api as Record<string, unknown>)[name]).toBeDefined();
   });
@@ -225,7 +156,7 @@ describe('API contracts', () => {
     expect(() => verifyChain({}, bad as never)).toThrow(TypeError); // before the entries are even looked at
     expect(() => verifyJsonl(new Uint8Array(0), bad as never)).toThrow(TypeError);
     expect(() => verifyEntries(() => null, bad as never)).toThrow(TypeError);
-    withTmp((path) => expect(() => new JsonlChainWriter(path, bad as never, 'agent-pipe')).toThrow(TypeError));
+    withTmp((path) => expect(() => new JsonlChainWriter(path, bad as never)).toThrow(TypeError));
   });
 
   it.each([['a string getKey', { getKey: 'k1' }], ['a numeric getKey', { getKey: 1 }]])('rejects %s up front', (_label, bad) => {
@@ -236,7 +167,7 @@ describe('API contracts', () => {
     const provider = Object.assign(() => undefined, { getKey: (id: string) => (id === 'k1' ? KEY : null), activeKeyId: () => 'k1' });
     expect(verifyChain([], provider as never).ok).toBe(true);
     withTmp((path) => {
-      const writer = new JsonlChainWriter(path, provider as never, 'agent-pipe');
+      const writer = new JsonlChainWriter(path, provider as never);
       writer.append(draft(0));
       expect(verifyJsonl(readFileSync(path), keys).ok).toBe(true);
     });
@@ -251,7 +182,7 @@ describe('API contracts', () => {
     ['a string', 'x'.repeat(32)],
     ['a length-only object', { length: 64 }],
   ])('treats %s as no key: verify breaks, sealing and the in-memory keyring refuse', (_label, notBytes) => {
-    const entry = appendEntry(null, draft(0), keys, 'agent-pipe');
+    const entry = appendEntry(null, draft(0), keys);
     const provider = { getKey: () => notBytes, activeKeyId: () => 'k1' };
     expect(verifyChain([entry], provider as never)).toMatchObject({ ok: false, brokenAt: 0, reason: 'unknown writer_key_id' });
     const { entry_hash: _h, entry_hmac: _m, ...core } = entry;
@@ -265,27 +196,20 @@ describe('API contracts', () => {
     const view = Buffer.from(new Uint8Array(40).fill(5).buffer, 8, 16);
     for (const k of [plain, view]) {
       const provider = new InMemoryKeyProvider({ k1: k as never }, 'k1');
-      const entry = appendEntry(null, draft(0), provider, 'agent-pipe');
+      const entry = appendEntry(null, draft(0), provider);
       expect(verifyChain([entry], provider).ok).toBe(true);
     }
   });
 
   it('breaks at an array that carries a sealed entry\'s properties (only a plain object is an entry)', () => {
-    const entry = appendEntry(null, draft(0), keys, 'agent-pipe');
+    const entry = appendEntry(null, draft(0), keys);
     expect(verifyChain([Object.assign([], entry)], keys)).toMatchObject({ ok: false, brokenAt: 0 });
   });
 
   it('a provider without activeKeyId can verify but cannot start a writer', () => {
     const verifyOnly = { getKey: (id: string) => (id === 'k1' ? KEY : null) };
     expect(verifyChain([], verifyOnly as never).ok).toBe(true);
-    withTmp((path) => expect(() => new JsonlChainWriter(path, verifyOnly as never, 'agent-pipe')).toThrow(TypeError));
-  });
-
-  it('the sealed-entry schema requires entry_hmac (readChain never returns an unsealed entry)', () => {
-    const entry = appendEntry(null, draft(0), keys, 'agent-pipe');
-    const { entry_hmac: _m, ...unsealed } = entry;
-    expect(api.SealedAuditEntrySchema.safeParse(entry).success).toBe(true);
-    expect(api.SealedAuditEntrySchema.safeParse(unsealed).success).toBe(false);
+    withTmp((path) => expect(() => new JsonlChainWriter(path, verifyOnly as never)).toThrow(TypeError));
   });
 
   it('InMemoryKeyProvider looks keys up exactly: no case folding, no prototype members', () => {
@@ -317,11 +241,7 @@ describe('keys are typed as Uint8Array, not only Buffer', () => {
   it('a plain Uint8Array key seals, verifies and fills an InMemoryKeyProvider (type-checked by tsc)', () => {
     const raw = new Uint8Array(32).fill(9);
     const provider: api.KeyProvider = { getKey: (id: string) => (id === 'k1' ? raw : null), activeKeyId: () => 'k1' };
-    const draft = {
-      v: 1, chain: 'brain', call_id: 'c', session_id: 's', agent: { name: 'n', kind: 'main' },
-      ts_unix_ms: 1, boot_id: 'b', host_id: 'h', phase: 'pre',
-    } as AuditDraft;
-    const entry = appendEntry(null, draft, provider, 'agent-pipe');
+    const entry = appendEntry(null, draft(0), provider);
     const { entry_hash: _h, entry_hmac: _m, ...core } = entry;
     expect(sealEntry(core, raw)).toEqual(entry);
     expect(verifyChain([entry], provider).ok).toBe(true);

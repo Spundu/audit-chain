@@ -5,34 +5,20 @@ import { describe, it, expect, vi } from 'vitest';
 import { CanonicalizationError, canonicalize } from '../src/canonicalize.js';
 import { jsonlEntryAt, toJsonlLine } from '../src/jsonl.js';
 import { InMemoryKeyProvider } from '../src/keys.js';
-import type { SealedAuditEntry } from '../src/record.js';
-import { appendEntry, type AuditDraft } from '../src/seal.js';
+import { appendEntry, type SealedEntry } from '../src/seal.js';
 import { verifyChain, verifyEntries, type ChainStep } from '../src/verify.js';
 import { JsonlChainWriter } from '../src/writer.js';
+import { draft } from './draft.js';
 
 const keys = new InMemoryKeyProvider({ k1: Buffer.alloc(32, 4) }, 'k1');
 const LF = String.fromCharCode(10);
 
-function draft(i: number, over: Record<string, unknown> = {}): AuditDraft {
-  return {
-    v: 1,
-    chain: 'brain',
-    call_id: `c${i}`,
-    session_id: 's',
-    agent: { name: 'n', kind: 'main' },
-    ts_unix_ms: i,
-    boot_id: 'b',
-    host_id: 'h',
-    phase: 'pre',
-    ...over,
-  } as AuditDraft;
-}
 
-function chain(n: number): SealedAuditEntry[] {
-  const out: SealedAuditEntry[] = [];
-  let prev: SealedAuditEntry | null = null;
+function chain(n: number): SealedEntry[] {
+  const out: SealedEntry[] = [];
+  let prev: SealedEntry | null = null;
   for (let i = 0; i < n; i += 1) {
-    prev = appendEntry(prev, draft(i), keys, 'agent-pipe');
+    prev = appendEntry(prev, draft(i), keys);
     out.push(prev);
   }
   return out;
@@ -73,8 +59,8 @@ describe('anchors and checkpoints of the wrong shape fail closed', () => {
     const dir = mkdtempSync(join(tmpdir(), 'audit-chain-contracts-'));
     try {
       const path = join(dir, 'c.jsonl');
-      new JsonlChainWriter(path, keys, 'agent-pipe').append(draft(0));
-      expect(() => new JsonlChainWriter(path, keys, 'agent-pipe', checkpoint as never)).toThrow(TypeError);
+      new JsonlChainWriter(path, keys).append(draft(0));
+      expect(() => new JsonlChainWriter(path, keys, checkpoint as never)).toThrow(TypeError);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -137,26 +123,6 @@ describe('the size budget charges array brackets (a deterministic work count, no
   });
 });
 
-describe('example record schema: every enum member round-trips through the writer', () => {
-  it.each([
-    ...(['brain', 'vault'] as const).map((v) => ({ chain: v })),
-    ...(['pre', 'approval', 'post', 'control'] as const).map((v) => ({ phase: v })),
-    ...(['read', 'connector-read', 'write', 'exec', 'network', 'money', 'account', 'login', 'irreversible', 'vault', 'meta'] as const).map((v) => ({ tool_kind: v })),
-    ...(['main', 'subagent', 'vault'] as const).map((v) => ({ agent: { name: 'n', kind: v } })),
-    ...(['green', 'yellow', 'red'] as const).map((v) => ({ decision: { tier: v, action: 'allow', source: 's', reason: 'r' } })),
-    ...(['allow', 'ask', 'deny', 'executed', 'failed'] as const).map((v) => ({ decision: { tier: 'green', action: v, source: 's', reason: 'r' } })),
-    ...(['ok', 'error', 'denied', 'timeout', 'crashed'] as const).map((v) => ({ result: { status: v, duration_ms: 1 } })),
-  ])('%j', (over) => {
-    const e = appendEntry(null, draft(0, over), keys, 'agent-pipe');
-    expect(verifyChain([e], keys).ok).toBe(true);
-  });
-
-  it.each(['agent-pipe', 'vault'] as const)('producer %s', (producer) => {
-    const over = producer === 'vault' ? { chain: 'vault' } : {};
-    expect(appendEntry(null, draft(0, over), keys, producer).producer).toBe(producer);
-  });
-});
-
 describe('vector generator self-check is wired in (source-level)', () => {
   it('both text and size vectors go through checkMust', () => {
     const src = readFileSync(join(__dirname, '..', 'scripts', 'emit-jcs-vectors.mts'), 'utf8');
@@ -208,13 +174,6 @@ describe('more API contracts', () => {
     expect(jsonlLineCount(view)).toBe(2);
     expect(jsonlEntryAt(view, 1)).toBeDefined();
   });
-
-  it.each([['65 hex chars', 'a'.repeat(65)], ['64 hex + zz', `${'a'.repeat(64)}zz`], ['64 hex + LF', `${'a'.repeat(64)}${LF}`]])(
-    'the schema refuses an over-long action_hash (%s)',
-    (_label, hash) => {
-      expect(() => appendEntry(null, draft(0, { action_hash: hash }), keys, 'agent-pipe')).toThrow();
-    },
-  );
 
   it('parseJson refuses a String wrapper object', async () => {
     const { parseJson } = await import('../src/json.js');

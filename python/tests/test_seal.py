@@ -15,7 +15,7 @@ _VEC = json.loads(
     (_REPO / "vectors" / "audit-seal-vectors.json").read_text(encoding="utf-8")
 )
 KEY = bytes.fromhex(_VEC["key_hex"])
-KEYRING = {"vault-k1": KEY}
+KEYRING = {_VEC["key_id"]: KEY}
 
 
 def test_seal_matches_cross_language_vectors() -> None:
@@ -49,8 +49,8 @@ def _build_chain(n: int = 3) -> list[dict]:
     entries: list[dict] = []
     prev: dict | None = None
     for i in range(n):
-        draft = {"v": 1, "chain": "vault", "call_id": f"c{i}", "phase": "approval", "action_hash": "a" * 64}
-        entry = append_entry(prev, draft, KEY, writer_key_id="vault-k1", producer="vault")
+        draft = {"v": 1, "event": "payment.approval", "request_id": f"r{i}", "request_hash": "a" * 64}
+        entry = append_entry(prev, draft, KEY, writer_key_id=_VEC["key_id"])
         entries.append(entry)
         prev = entry
     return entries
@@ -66,7 +66,7 @@ def test_append_entry_builds_a_verifiable_chain() -> None:
 
 def test_verify_detects_content_tamper() -> None:
     entries = _build_chain()
-    entries[1] = {**entries[1], "call_id": "TAMPERED"}  # changed content, stale entry_hash
+    entries[1] = {**entries[1], "request_id": "TAMPERED"}  # changed content, stale entry_hash
     result = verify_chain(entries, KEYRING)
     assert not result.ok and "entry_hash" in (result.error or "")
 

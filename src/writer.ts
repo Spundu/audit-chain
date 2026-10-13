@@ -2,8 +2,7 @@ import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { isSha256Hex } from './hex.js';
 import { jsonlEntryAt, jsonlLineCount, parseJsonl, toJsonlLine, verifyJsonl } from './jsonl.js';
 import { requireKeyProvider, type KeyProvider } from './keys.js';
-import { GENESIS_HASH, SealedAuditEntrySchema, type AuditCore, type SealedAuditEntry } from './record.js';
-import { appendEntry, type AuditDraft } from './seal.js';
+import { GENESIS_HASH, appendEntry, type AuditDraft, type SealedEntry } from './seal.js';
 import type { ChainAnchor } from './verify.js';
 
 // The WRITER side of a chain: a single-writer, append-only canonical-JSONL file. On construction it
@@ -14,27 +13,31 @@ import type { ChainAnchor } from './verify.js';
 // Single-writer is an assumption, not an enforcement: two writers on one file will fork it.
 
 /**
- * Parse and schema-validate every entry of a canonical-JSONL chain file (or [] if absent). For
- * TRUSTED reads after verification: it throws on the first non-canonical or schema-invalid line.
- * To check an untrusted file, use verifyJsonl, which returns a verdict instead. It READS THE FILE AGAIN:
- * to act on exactly the bytes you verified, keep them and use parseJsonl(bytes).entries instead.
+ * Read a chain file and return its entries, but only if the whole file verifies (and, with an anchor,
+ * ends exactly at that head); otherwise throw. The bytes are read once, so the entries returned are
+ * exactly the ones verified. A missing file is an empty chain. For a verdict instead of an exception,
+ * use verifyJsonl. `T` only types the result: records are not checked against it.
  */
-export function readChain(path: string): SealedAuditEntry[] {
-  if (!existsSync(path)) return [];
-  const parsed = parseJsonl(readFileSync(path));
-  if (parsed.badLine !== null) throw new Error(`line ${parsed.badLine}: ${parsed.reason}`);
-  return parsed.entries.map((entry) => SealedAuditEntrySchema.parse(entry));
+export function readChain<T extends AuditDraft = AuditDraft>(
+  path: string,
+  keys: KeyProvider,
+  anchor?: ChainAnchor | null,
+): SealedEntry<T>[] {
+  const data = existsSync(path) ? readFileSync(path) : Buffer.alloc(0);
+  const result = verifyJsonl(data, keys, anchor);
+  if (!result.ok) throw new Error(`chain does not verify: it breaks at entry ${result.brokenAt}: ${result.reason}`);
+  return parseJsonl(data).entries as SealedEntry<T>[];
 }
 
 function entryHashOf(entry: unknown): unknown {
   return entry !== null && typeof entry === 'object' ? (entry as Record<string, unknown>).entry_hash : undefined;
 }
 
-export class JsonlChainWriter {
+/** Appends records of any JSON shape. `T` only types `append` and `head`: records are not checked against it. */
+export class JsonlChainWriter<T extends AuditDraft = AuditDraft> {
   readonly #path: string;
   readonly #keys: KeyProvider;
-  readonly #producer: AuditCore['producer'];
-  #prev: SealedAuditEntry | null;
+  #prev: SealedEntry<T> | null;
   #writeFailed = false;
 
   /**
@@ -42,14 +45,13 @@ export class JsonlChainWriter {
    *   append. The file must still contain that entry at position count - 1 (it may have grown since);
    *   a shorter file, or a different entry there, means it was truncated or rolled back.
    */
-  constructor(path: string, keys: KeyProvider, producer: AuditCore['producer'], checkpoint?: ChainAnchor) {
+  constructor(path: string, keys: KeyProvider, checkpoint?: ChainAnchor) {
     requireKeyProvider(keys);
     if (typeof (keys as { activeKeyId?: unknown }).activeKeyId !== 'function') {
       throw new TypeError('keys must be a KeyProvider { getKey(writerKeyId), activeKeyId() }');
     }
     this.#path = path;
     this.#keys = keys;
-    this.#producer = producer;
     const data = existsSync(path) ? readFileSync(path) : Buffer.alloc(0);
     const result = verifyJsonl(data, keys);
     if (!result.ok) {
@@ -74,22 +76,15 @@ export class JsonlChainWriter {
         throw new Error(`refusing to append: ${path} no longer contains checkpoint entry ${at - 1}`);
       }
     }
-    if (count === 0) {
-      this.#prev = null;
-      return;
-    }
-    const last = jsonlEntryAt(data, count - 1);
-    // The chain verifies, but this writer only continues chains of ITS record shape (a chain written
-    // by the schema-less Python append_entry, for example, may not match it).
-    const head = SealedAuditEntrySchema.safeParse(last);
-    if (!head.success) throw new Error("refusing to append: the chain's last entry does not match this writer's schema");
-    this.#prev = head.data;
+    // The chain verified, so its last line is a sealed entry with a valid seq and entry_hash: the
+    // writer continues any verified chain, whatever its record shape (a Python-written one included).
+    this.#prev = count === 0 ? null : (jsonlEntryAt(data, count - 1) as SealedEntry<T>);
   }
 
   /** Seal a submitted draft, append it as one canonical line, and advance the chain head. */
-  append(draft: AuditDraft): SealedAuditEntry {
+  append(draft: T): SealedEntry<T> {
     if (this.#writeFailed) throw new Error('refusing to append after a failed write: restart the writer');
-    const entry = appendEntry(this.#prev, draft, this.#keys, this.#producer);
+    const entry = appendEntry(this.#prev, draft, this.#keys);
     const line = toJsonlLine(entry); // outside the latch: an error here wrote nothing
     try {
       appendFileSync(this.#path, line, 'utf8');
@@ -105,7 +100,7 @@ export class JsonlChainWriter {
     return entry;
   }
 
-  get head(): SealedAuditEntry | null {
+  get head(): SealedEntry<T> | null {
     return this.#prev === null ? null : structuredClone(this.#prev);
   }
 }

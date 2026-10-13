@@ -30,7 +30,7 @@ def _chain(n: int) -> list[dict]:
     out: list[dict] = []
     prev = None
     for i in range(n):
-        prev = append_entry(prev, {"v": 1, "call_id": f"c{i}"}, KEY, writer_key_id="k1", producer="p")
+        prev = append_entry(prev, {"v": 1, "request_id": f"r{i}"}, KEY, writer_key_id="k1")
         out.append(prev)
     return out
 
@@ -67,12 +67,12 @@ def test_a_chain_followed_by_line_feeds_breaks_at_the_first_junk_line() -> None:
 # -- writer-stamped fields ---------------------------------------------------------------------------
 
 
-def test_seq_prev_hash_key_id_and_producer_come_from_the_writer_not_the_draft() -> None:
+def test_seq_prev_hash_and_key_id_come_from_the_writer_not_the_draft() -> None:
     e0 = _chain(1)[0]
-    forged = {"v": 1, "seq": 7, "prev_hash": "f" * 64, "writer_key_id": "other", "producer": "evil"}
-    e1 = append_entry(e0, forged, KEY, writer_key_id="k1", producer="p")
-    stamped = (e1["seq"], e1["prev_hash"], e1["writer_key_id"], e1["producer"])
-    assert stamped == (1, e0["entry_hash"], "k1", "p")
+    forged = {"v": 1, "seq": 7, "prev_hash": "f" * 64, "writer_key_id": "other"}
+    e1 = append_entry(e0, forged, KEY, writer_key_id="k1")
+    stamped = (e1["seq"], e1["prev_hash"], e1["writer_key_id"])
+    assert stamped == (1, e0["entry_hash"], "k1")
     assert verify_chain([e0, e1], RING).ok
 
 
@@ -173,7 +173,7 @@ def test_compare_digest_is_asked_once_per_entry_that_reaches_the_hmac_step(compa
     assert _verdict(_forged_hmac_at_1()) == (False, 0) and compare_digest["calls"] == 2
     compare_digest["calls"] = 0
     tampered = _chain(3)
-    tampered[1] = {**tampered[1], "call_id": "tampered"}
+    tampered[1] = {**tampered[1], "request_id": "tampered"}
     assert _verdict(tampered) == (False, 0) and compare_digest["calls"] == 1
 
 
@@ -230,7 +230,7 @@ def test_several_large_lines_over_1_mib_verify() -> None:
     prev = None
     for i in range(4):
         draft = {"v": 1, "pad": "y" * 400_000, "i": i}
-        prev = append_entry(prev, draft, KEY, writer_key_id="k1", producer="p")
+        prev = append_entry(prev, draft, KEY, writer_key_id="k1")
         entries.append(prev)
     data = _file(entries)
     assert data.rindex(b"\n", 0, len(data) - 1) + 1 > 2**20

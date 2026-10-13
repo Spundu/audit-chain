@@ -22,8 +22,8 @@ const LINE_1_BROKEN = { ok: false, last_seq: 0 };
 // single backslash, entry 1 a key that is a line feed after the same preceding key. JSON.parse then
 // returns a backslash for entry 1's key, so a verifier built on it rejects a valid chain.
 function escapedKeyChain(): Buffer {
-  const e0 = seal({ seq: 0, prev_hash: '0'.repeat(64), writer_key_id: 'vault-k1', p: { '': 1, [String.fromCharCode(92)]: 2 } });
-  const e1 = seal({ seq: 1, prev_hash: e0.entry_hash, writer_key_id: 'vault-k1', p: { '': 1, [String.fromCharCode(10)]: 2 } });
+  const e0 = seal({ seq: 0, prev_hash: '0'.repeat(64), writer_key_id: 'k1', p: { '': 1, [String.fromCharCode(92)]: 2 } });
+  const e1 = seal({ seq: 1, prev_hash: e0.entry_hash, writer_key_id: 'k1', p: { '': 1, [String.fromCharCode(10)]: 2 } });
   return file([canonicalize(e0), canonicalize(e1)]);
 }
 
@@ -31,7 +31,7 @@ function escapedKeyChain(): Buffer {
 // byte FF. A LOSSY decoder turns FF back into U+FFFD, so the text, hash and HMAC all still match: only
 // strict UTF-8 decoding notices that the file bytes changed.
 function fffdSwappedForFf(): Buffer {
-  const e0 = seal({ seq: 0, prev_hash: '0'.repeat(64), writer_key_id: 'vault-k1', note: `x${String.fromCharCode(0xfffd)}y` });
+  const e0 = seal({ seq: 0, prev_hash: '0'.repeat(64), writer_key_id: 'k1', note: `x${String.fromCharCode(0xfffd)}y` });
   const bytes = file([canonicalize(e0)]);
   const at = bytes.indexOf(Buffer.from([0xef, 0xbf, 0xbd]));
   return Buffer.concat([bytes.subarray(0, at), Buffer.from([0xff]), bytes.subarray(at + 3)]);
@@ -73,7 +73,7 @@ const twinSwapped = twinLine.split(TWIN_NFD).map((part) => part.split(TWIN_NFC).
 // character: no continuation-bit check, 3- and 4-byte overlongs, code points above U+10FFFF or F5 leads
 // read as U+FFFD, a truncated sequence, a lone continuation byte or an encoded surrogate read as U+FFFD.
 // Compared as decoded text the line would still match; the file bytes do not, and must break there.
-const UTF8_SEALED = seal({ seq: 1, prev_hash: full[0]!.entry_hash, writer_key_id: 'vault-k1', note: `caf${cp(0xe9)} a/b ${cp(0xfffd)} x` });
+const UTF8_SEALED = seal({ seq: 1, prev_hash: full[0]!.entry_hash, writer_key_id: 'k1', note: `caf${cp(0xe9)} a/b ${cp(0xfffd)} x` });
 const E_ACUTE_BYTES = [0xc3, 0xa9];
 const SLASH_BYTES = [0x61, 0x2f, 0x62]; // 'a/b': the only slash in the line
 const FFFD_BYTES = [0xef, 0xbf, 0xbd];
@@ -159,7 +159,7 @@ export const JSONL_VECTORS = [
   { name: 'forged-first-line-then-unclosed-line', data: forgedThen(lines[2]!.slice(0, -1)), expect: { ok: false, last_seq: -1 } },
   { name: 'forged-first-line-then-cr-terminated-line', data: forgedThen(`${lines[2]}${CR}`), expect: { ok: false, last_seq: -1 } },
   { name: 'forged-first-line-then-invalid-utf8-line', data: forgedThenInvalidUtf8, expect: { ok: false, last_seq: -1 } },
-  { name: 'forged-middle-line-then-junk-line', data: file([lines[0]!, canonicalize({ ...full[1], call_id: 'cX' }), lines[2]!, 'x']), expect: { ok: false, last_seq: 0 } },
+  { name: 'forged-middle-line-then-junk-line', data: file([lines[0]!, canonicalize({ ...full[1], request_id: 'rX' }), lines[2]!, 'x']), expect: { ok: false, last_seq: 0 } },
   { name: 'lax-utf8-control-sealed-line-verifies', data: file([lines[0]!, canonicalize(UTF8_SEALED)]), expect: { ok: true, last_seq: 1 } },
   ...LAX_UTF8.map(([label, from, to]) => ({
     name: `lax-utf8-${label}`,
@@ -263,7 +263,7 @@ export const JSONL_VECTORS = [
 function sizePair(tag: string, unit: string): SizeVector[] {
   const MAX = 1_048_576;
   const unitBytes = Buffer.byteLength(unit, 'utf8');
-  const base = { seq: 0, prev_hash: '0'.repeat(64), writer_key_id: 'vault-k1', pad: '' };
+  const base = { seq: 0, prev_hash: '0'.repeat(64), writer_key_id: 'k1', pad: '' };
   const room = MAX - Buffer.byteLength(canonicalize(seal(base)), 'utf8');
   const count = Math.floor(room / unitBytes);
   const filler = 'x'.repeat(room - count * unitBytes); // tops the pad up to exactly the limit
@@ -315,7 +315,7 @@ function lineStartingPastOneMiB(): SizeVector {
   const atLimit = sizePair('', 'x')[0]!;
   const line0 = atLimit.prefix + atLimit.unit.repeat(atLimit.count) + atLimit.suffix;
   const e0 = parseJson(line0.slice(0, -1)) as Record<string, unknown>;
-  const e1 = seal({ seq: 1, prev_hash: e0.entry_hash, writer_key_id: 'vault-k1', note: 'starts past 1 MiB' });
+  const e1 = seal({ seq: 1, prev_hash: e0.entry_hash, writer_key_id: 'k1', note: 'starts past 1 MiB' });
   const LF = String.fromCharCode(10);
   return {
     name: 'line-starting-past-1-mib-verifies',
@@ -333,13 +333,13 @@ function lineStartingPastOneMiB(): SizeVector {
 function overLimitLineAt(position: 'middle' | 'last'): SizeVector {
   const MAX = 1_048_576;
   const LF = String.fromCharCode(10);
-  const base = { seq: 1, prev_hash: full[0]!.entry_hash, writer_key_id: 'vault-k1', pad: '' };
+  const base = { seq: 1, prev_hash: full[0]!.entry_hash, writer_key_id: 'k1', pad: '' };
   const room = MAX + 1 - Buffer.byteLength(canonicalize(seal(base)), 'utf8');
   const e1 = seal({ ...base, pad: 'x'.repeat(room) }); // its core fits; the whole entry is 1 byte over
   const line1 = JSON.stringify(Object.fromEntries(Object.keys(e1).sort().map((k) => [k, e1[k]])));
   if (Buffer.byteLength(line1, 'utf8') !== MAX + 1) throw new Error('over-limit line is not MAX + 1 bytes');
   const at = line1.indexOf('"pad":"') + '"pad":"'.length;
-  const e2 = seal({ seq: 2, prev_hash: e1.entry_hash, writer_key_id: 'vault-k1', note: 'after' });
+  const e2 = seal({ seq: 2, prev_hash: e1.entry_hash, writer_key_id: 'k1', note: 'after' });
   return {
     name: `over-limit-line-at-${position}`,
     prefix: lines[0]! + LF + line1.slice(0, at),

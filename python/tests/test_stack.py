@@ -26,8 +26,8 @@ def _chain(n: int, extra: dict[str, Any] | None = None) -> list[dict]:
     out: list[dict] = []
     prev = None
     for i in range(n):
-        draft = {"v": 1, "call_id": f"c{i}", **(extra or {})}
-        prev = append_entry(prev, draft, KEY, writer_key_id="k1", producer="p")
+        draft = {"v": 1, "request_id": f"r{i}", **(extra or {})}
+        prev = append_entry(prev, draft, KEY, writer_key_id="k1")
         out.append(prev)
     return out
 

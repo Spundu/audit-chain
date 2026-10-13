@@ -6,41 +6,27 @@ import { CanonicalizationError, MAX_CANONICAL_BYTES, canonicalize } from '../src
 import { JsonSyntaxError, parseJson } from '../src/json.js';
 import { jsonlEntryAt, jsonlLineCount, parseJsonl, toJsonlLine, verifyJsonl } from '../src/jsonl.js';
 import { InMemoryKeyProvider } from '../src/keys.js';
-import { SealedAuditEntrySchema, type SealedAuditEntry } from '../src/record.js';
-import { appendEntry, sealEntry, type AuditDraft } from '../src/seal.js';
+import { appendEntry, type SealedEntry } from '../src/seal.js';
 import { verifyEntries, type ChainStep } from '../src/verify.js';
 import { JsonlChainWriter } from '../src/writer.js';
+import { draft } from './draft.js';
 
 const keys = new InMemoryKeyProvider({ k1: Buffer.alloc(32, 3) }, 'k1');
 const LF = String.fromCharCode(10);
 const CR = String.fromCharCode(13);
 
-function draft(i: number, over: Record<string, unknown> = {}): AuditDraft {
-  return {
-    v: 1,
-    chain: 'brain',
-    call_id: `c${i}`,
-    session_id: 's',
-    agent: { name: 'n', kind: 'main' },
-    ts_unix_ms: i,
-    boot_id: 'b',
-    host_id: 'h',
-    phase: 'pre',
-    ...over,
-  } as AuditDraft;
-}
 
-function chain(n: number, over: Record<string, unknown> = {}): SealedAuditEntry[] {
-  const out: SealedAuditEntry[] = [];
-  let prev: SealedAuditEntry | null = null;
+function chain(n: number, over: Record<string, unknown> = {}): SealedEntry[] {
+  const out: SealedEntry[] = [];
+  let prev: SealedEntry | null = null;
   for (let i = 0; i < n; i += 1) {
-    prev = appendEntry(prev, draft(i, over), keys, 'agent-pipe');
+    prev = appendEntry(prev, draft(i, over), keys);
     out.push(prev);
   }
   return out;
 }
 
-const fileOf = (entries: SealedAuditEntry[]): Buffer => Buffer.from(entries.map((e) => toJsonlLine(e)).join(''), 'utf8');
+const fileOf = (entries: SealedEntry[]): Buffer => Buffer.from(entries.map((e) => toJsonlLine(e)).join(''), 'utf8');
 
 describe('verifyEntries: a failing SOURCE is an infrastructure error, not tampering', () => {
   it('propagates an exception thrown by next() mid-stream, with or without an anchor', () => {
@@ -75,7 +61,7 @@ describe('torn tail and multi-line files', () => {
   });
 
   it('verifies a file of several large lines totalling over 1 MiB (the size bound is per line)', () => {
-    const entries = chain(4, { args_canonical: 'x'.repeat(400_000) });
+    const entries = chain(4, { note: 'x'.repeat(400_000) });
     const data = fileOf(entries);
     // The last line STARTS past 1 MiB: the limit applies to each line's length, not to where it starts.
     expect(data.lastIndexOf(10, data.length - 2) + 1).toBeGreaterThan(MAX_CANONICAL_BYTES);
@@ -88,42 +74,14 @@ describe('writer checkpoint at the current head', () => {
     const dir = mkdtempSync(join(tmpdir(), 'audit-chain-engine-'));
     try {
       const path = join(dir, 'c.jsonl');
-      const w = new JsonlChainWriter(path, keys, 'agent-pipe');
+      const w = new JsonlChainWriter(path, keys);
       w.append(draft(0));
       const head = w.append(draft(1));
-      const restarted = new JsonlChainWriter(path, keys, 'agent-pipe', { count: 2, lastHash: head.entry_hash });
+      const restarted = new JsonlChainWriter(path, keys, { count: 2, lastHash: head.entry_hash });
       expect(restarted.append(draft(2)).seq).toBe(2);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
-});
-
-describe('record schema (more constraints)', () => {
-  const core = { ...draft(0), seq: 0, prev_hash: '0'.repeat(64), writer_key_id: 'k1', producer: 'agent-pipe' };
-
-  it('accepts a result with only status and duration_ms', () => {
-    expect(() => appendEntry(null, draft(0, { result: { status: 'ok', duration_ms: 0 } }), keys, 'agent-pipe')).not.toThrow();
-  });
-
-  it.each([
-    ['a missing writer_key_id', { writer_key_id: undefined }],
-    ['a negative seq', { seq: -1 }],
-    ['a fractional seq', { seq: 0.5 }],
-    ['an uppercase prev_hash', { prev_hash: 'A'.repeat(64) }],
-    ['a short prev_hash', { prev_hash: '0'.repeat(63) }],
-    ['a non-string call_id', { call_id: 1 }],
-    ['an unknown decision action', { decision: { tier: 'green', action: 'maybe', source: 's', reason: 'r' } }],
-    ['a redactions list with a number', { redactions: [1] }],
-  ])('sealEntry refuses %s', (_label, over) => {
-    expect(() => sealEntry({ ...core, ...over } as never, Buffer.alloc(32, 1))).toThrow();
-  });
-
-  it('SealedAuditEntrySchema refuses a malformed entry_hash', () => {
-    const e = chain(1)[0]!;
-    expect(SealedAuditEntrySchema.safeParse(e).success).toBe(true);
-    expect(SealedAuditEntrySchema.safeParse({ ...e, entry_hash: 'x' }).success).toBe(false);
-    expect(SealedAuditEntrySchema.safeParse({ ...e, entry_hmac: 1 }).success).toBe(false);
   });
 });
 

@@ -21,7 +21,7 @@ from audit_chain.canonical import CanonicalizationError
 _VEC = json.loads(
     (pathlib.Path(__file__).resolve().parents[2] / "vectors" / "audit-seal-vectors.json").read_text("utf-8")
 )
-KEYRING = {"vault-k1": bytes.fromhex(_VEC["key_hex"])}
+KEYRING = {_VEC["key_id"]: bytes.fromhex(_VEC["key_hex"])}
 KEY = bytes(range(32))
 
 
@@ -36,7 +36,7 @@ def _chain(n: int = 3) -> list[dict]:
     entries: list[dict] = []
     prev = None
     for i in range(n):
-        prev = append_entry(prev, {"v": 1, "call_id": f"c{i}"}, KEY, writer_key_id="k1", producer="vault")
+        prev = append_entry(prev, {"v": 1, "request_id": f"r{i}"}, KEY, writer_key_id="k1")
         entries.append(prev)
     return entries
 
@@ -78,15 +78,15 @@ def test_short_key_cannot_seal() -> None:
         seal_core({"seq": 0}, b"")
 
 
-def test_producer_must_be_stamped_by_the_writer() -> None:
+def test_the_writer_key_id_has_no_default() -> None:
     with pytest.raises(TypeError):
-        append_entry(None, {"v": 1}, KEY, writer_key_id="k1")  # type: ignore[call-arg]
+        append_entry(None, {"v": 1}, KEY)  # type: ignore[call-arg]
 
 
 def test_derived_fields_in_a_draft_are_refused() -> None:
     # They would be hashed, overwritten and then stripped at verification: sealed but never verifiable.
     with pytest.raises(ValueError):
-        append_entry(None, {"entry_hash": "x"}, KEY, writer_key_id="k1", producer="p")
+        append_entry(None, {"entry_hash": "x"}, KEY, writer_key_id="k1")
 
 
 def test_unterminated_last_line_is_torn() -> None:
@@ -144,7 +144,7 @@ def test_a_16_byte_key_seals_and_verifies_and_15_is_refused() -> None:
 
     assert MIN_KEY_BYTES == 16
     k16 = b"k" * 16
-    entry = append_entry(None, {"v": 1}, k16, writer_key_id="k16", producer="p")
+    entry = append_entry(None, {"v": 1}, k16, writer_key_id="k16")
     assert verify_chain([entry], {"k16": k16}).ok
     with pytest.raises(ValueError):
         seal_core({"seq": 0}, b"k" * 15)
@@ -157,13 +157,13 @@ def test_prune_none_drops_none_members_deeply_but_keeps_none_in_lists() -> None:
         "b": {"d": 1},
         "e": [None, {}],
     }
-    entry = append_entry(None, {"v": 1, "gone": None, "kept": [None]}, KEY, writer_key_id="k1", producer="p")
+    entry = append_entry(None, {"v": 1, "gone": None, "kept": [None]}, KEY, writer_key_id="k1")
     assert "gone" not in entry and entry["kept"] == [None]
 
 
 def test_to_jsonl_line_is_exactly_utf8_canonical_plus_lf() -> None:
     note = "a+b " + chr(0xE9) + chr(0x1F600)
-    entry = append_entry(None, {"v": 1, "note": note}, KEY, writer_key_id="k1", producer="p")
+    entry = append_entry(None, {"v": 1, "note": note}, KEY, writer_key_id="k1")
     assert to_jsonl_line(entry) == canonicalize(entry).encode("utf-8") + b"\n"
     assert b"a+b" in to_jsonl_line(entry) and chr(0x1F600).encode("utf-8") in to_jsonl_line(entry)
 

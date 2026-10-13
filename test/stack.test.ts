@@ -1,5 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import ts from 'typescript';
 import { describe, it, expect } from 'vitest';
@@ -210,10 +210,13 @@ describe('the regex-free hex checks', () => {
 
 describe('the verification path uses no regular expressions', () => {
   // A regex is compiled lazily; if that happens with the stack nearly exhausted, V8 throws a SyntaxError.
-  // These are the modules whose code runs while verifying (record.ts, seal.ts and writer.ts use Zod's
-  // regexes, but only to seal and to read back a chain that already verified).
+  // Checked for EVERY source module, so a new one cannot bring a regex onto the verification path.
   const REGEX_METHODS = new Set(['match', 'matchAll', 'search']); // each turns a string argument into a RegExp
-  it.each(['canonicalize.ts', 'hex.ts', 'json.ts', 'jsonl.ts', 'keys.ts', 'stack.ts', 'verify.ts'])('%s', (file) => {
+  const SOURCES = readdirSync(join(__dirname, '..', 'src')).filter((f) => f.endsWith('.ts'));
+  it('covers every source module', () => {
+    expect(SOURCES).toEqual(expect.arrayContaining(['canonicalize.ts', 'json.ts', 'jsonl.ts', 'seal.ts', 'verify.ts', 'writer.ts']));
+  });
+  it.each(SOURCES)('%s', (file) => {
     const text = readFileSync(join(__dirname, '..', 'src', file), 'utf8');
     const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
     const found: string[] = [];

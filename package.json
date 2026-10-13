@@ -48,9 +48,6 @@
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "prepare": "npm run clean && npm run build"
   },
-  "dependencies": {
-    "zod": "^3.24.1"
-  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^24",

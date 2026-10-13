@@ -21,7 +21,7 @@ const fail = (message) => {
 };
 
 const pkg = requireHere(NAME);
-const EXPORTS = ['canonicalize', 'parseJson', 'verifyJsonl', 'verifyChain', 'verifyEntries', 'JsonlChainWriter', 'InMemoryKeyProvider'];
+const EXPORTS = ['canonicalize', 'parseJson', 'verifyJsonl', 'verifyChain', 'verifyEntries', 'JsonlChainWriter', 'readChain', 'InMemoryKeyProvider'];
 for (const name of EXPORTS) if (typeof pkg[name] !== 'function') fail(`require('${NAME}').${name} is not a function`);
 
 // The vector files are resolved through the "exports" map, then parsed with the package's own strict
@@ -185,30 +185,36 @@ const dir = mkdtempSync(join(tmpdir(), 'audit-chain-smoke-'));
 try {
   const path = join(dir, 'audit.jsonl');
   const keys = new pkg.InMemoryKeyProvider({ k1: randomBytes(32) }, 'k1');
-  const draft = (i) => ({
-    v: 1, chain: 'vault', call_id: `c${i}`, session_id: 's', agent: { name: 'smoke', kind: 'vault' },
-    ts_unix_ms: i, boot_id: 'b', host_id: 'h', phase: 'post',
-  });
-  const first = new pkg.JsonlChainWriter(path, keys, 'vault');
+  const draft = (i) => ({ event: 'user.login', user: `u${i}`, ts_unix_ms: i });
+  const first = new pkg.JsonlChainWriter(path, keys);
   first.append(draft(0));
   first.append(draft(1));
-  const restarted = new pkg.JsonlChainWriter(path, keys, 'vault', { count: 2, lastHash: first.head.entry_hash });
+  const restarted = new pkg.JsonlChainWriter(path, keys, { count: 2, lastHash: first.head.entry_hash });
   restarted.append(draft(2));
   const written = readFileSync(path);
   const verdict = pkg.verifyJsonl(written, keys, { count: 3, lastHash: restarted.head.entry_hash });
   if (!verdict.ok || verdict.lastSeq !== 2) fail(`writer round trip: got (${verdict.ok}, ${verdict.lastSeq})`);
+  const read = pkg.readChain(path, keys);
+  if (read.length !== 3 || read[1].user !== 'u1') fail('readChain did not return the verified entries');
   const tampered = Buffer.from(written);
-  tampered[tampered.indexOf('"c1"') + 2] = 'x'.charCodeAt(0);
+  tampered[tampered.indexOf('"u1"') + 2] = 'x'.charCodeAt(0);
   writeFileSync(path, tampered);
   const broken = pkg.verifyJsonl(tampered, keys);
   if (broken.ok || broken.lastSeq !== 0) fail(`tampered writer file: got (${broken.ok}, ${broken.lastSeq})`);
   let refusal = '';
   try {
-    void new pkg.JsonlChainWriter(path, keys, 'vault');
+    void new pkg.JsonlChainWriter(path, keys);
   } catch (err) {
     refusal = String(err?.message);
   }
   if (!refusal.startsWith('refusing to append')) fail(`the writer did not refuse a tampered chain (${refusal})`);
+  let unread = '';
+  try {
+    pkg.readChain(path, keys);
+  } catch (err) {
+    unread = String(err?.message);
+  }
+  if (!unread.startsWith('chain does not verify')) fail(`readChain returned a tampered chain (${unread})`);
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

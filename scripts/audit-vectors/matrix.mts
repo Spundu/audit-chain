@@ -51,7 +51,7 @@ export const DERIVED_FIELD_VECTORS = (['entry_hmac', 'entry_hash'] as const).fla
 );
 // A keyless attacker APPENDS an entry: correctly linked and hashed, but with no HMAC, or with neither
 // derived member. The chain verifies up to the real head and breaks at the appended entry.
-const appendedCore = { seq: 3, prev_hash: head, writer_key_id: 'vault-k1', note: 'appended without the key' };
+const appendedCore = { seq: 3, prev_hash: head, writer_key_id: 'k1', note: 'appended without the key' };
 const appendedHash = createHash('sha256').update(canonicalize(appendedCore), 'utf8').digest('hex');
 export const APPENDED_VECTORS = [
   { name: 'appended-entry-without-hmac', chain: [...full, { ...appendedCore, entry_hash: appendedHash }], expect: { ok: false, last_seq: 2 } },
@@ -60,7 +60,7 @@ export const APPENDED_VECTORS = [
   { name: 'unsealed-uppercase-entry-hash-member', chain: withFieldAt(1, 'ENTRY_HASH', 'x'), expect: BROKEN_AT_1 },
   { name: 'unsealed-mixed-case-entry-hmac-member', chain: withFieldAt(1, 'Entry_Hmac', 'x'), expect: BROKEN_AT_1 },
   { name: 'unsealed-entry-hash-with-trailing-space-member', chain: withFieldAt(1, 'entry_hash ', 'x'), expect: BROKEN_AT_1 },
-  { name: 'resealed-writer-key-id-with-leading-space', chain: resealAt1((c) => ({ ...c, writer_key_id: ' vault-k1' })), expect: BROKEN_AT_1 },
+  { name: 'resealed-writer-key-id-with-leading-space', chain: resealAt1((c) => ({ ...c, writer_key_id: ' k1' })), expect: BROKEN_AT_1 },
 ];
 
 // LINK and KEY-ID fields that are the right length but not ASCII / not well-formed: never a throw.

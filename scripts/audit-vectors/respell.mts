@@ -23,9 +23,9 @@ const EMOJI = String.fromCodePoint(0x1f600);
 const NOTE = `j/k"q${BS}z${LF}${String.fromCharCode(0x1f)}${E_ACUTE}${EMOJI}`;
 
 function canonicalLines(): [string, string] {
-  const e0 = seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'vault-k1', note: 'first' });
+  const e0 = seal({ seq: 0, prev_hash: GENESIS, writer_key_id: 'k1', note: 'first' });
   const e1 = seal({
-    seq: 1, prev_hash: e0.entry_hash, writer_key_id: 'vault-k1', amount: 1900, zero: 0, note: NOTE,
+    seq: 1, prev_hash: e0.entry_hash, writer_key_id: 'k1', amount: 1900, zero: 0, note: NOTE,
     list: [1, 'x', { y: 1, x: 2 }], meta: { b: { d: 2, c: 1 }, a: [3], e: {}, f: [] },
   });
   return [canonicalize(e0), canonicalize(e1)];
