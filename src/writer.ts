@@ -11,6 +11,8 @@ import type { ChainAnchor } from './verify.js';
 // tail, a tampered entry): appending would seal new entries onto a head that can never verify.
 // Truncation or rollback is NOT detectable here unless a checkpoint (count, head) is supplied.
 // Single-writer is an assumption, not an enforcement: two writers on one file will fork it.
+// append() returns only after its line is flushed to disk (fsync), so a head recorded elsewhere as a
+// checkpoint never points past what a power cut can leave in the file.
 
 /**
  * Read a chain file and return its entries, but only if the whole file verifies (and, with an anchor,
@@ -81,13 +83,13 @@ export class JsonlChainWriter<T extends AuditDraft = AuditDraft> {
     this.#prev = count === 0 ? null : (jsonlEntryAt(data, count - 1) as SealedEntry<T>);
   }
 
-  /** Seal a submitted draft, append it as one canonical line, and advance the chain head. */
+  /** Seal a submitted draft, append it as one canonical line flushed to disk, and advance the chain head. */
   append(draft: T): SealedEntry<T> {
     if (this.#writeFailed) throw new Error('refusing to append after a failed write: restart the writer');
     const entry = appendEntry(this.#prev, draft, this.#keys);
     const line = toJsonlLine(entry); // outside the latch: an error here wrote nothing
     try {
-      appendFileSync(this.#path, line, 'utf8');
+      appendFileSync(this.#path, line, { encoding: 'utf8', flush: true });
     } catch (err) {
       // A failed write (disk full, ...) may have left a partial line; appending after it would fuse
       // the next entry onto the torn bytes. A restarted writer re-verifies the file first.
