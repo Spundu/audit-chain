@@ -306,7 +306,7 @@ pip install -e ".[test]" && pytest        # Python: unit + vector tests
 npm run test:parity                       # both at once (needs the pip install above)
 ```
 
-The parity suite runs `python -m audit_chain.parity_worker`; set `AUDIT_CHAIN_PYTHON` to choose the
+The parity suite runs `python/tests/parity_worker.py`; set `AUDIT_CHAIN_PYTHON` to choose the
 interpreter (default `python`). `dist/` is the TypeScript build: build Python distributions with
 `python -m build --outdir dist-python`, so the two never mix. `AUDIT_CHAIN_BIG_TESTS=1 npm test`
 also runs a test that allocates a buffer over 2 GiB.
@@ -476,7 +476,7 @@ What it does **not** give you:
 src/            TypeScript: canonicalize, json (strict parser), jsonl, seal, verify, keys, writer,
                 hex and stack (internal helpers), index (the package entry)
 test/           vitest: unit + vector tests; test/parity/ is the cross-language suite
-python/         Python: audit_chain (canonical, jsonl, seal, verify, parity_worker) + pytest tests
+python/         Python: audit_chain (canonical, jsonl, seal, verify) + pytest tests and the parity worker
 vectors/        the normative spec (generated; do not hand-edit)
 scripts/        vector generators (npm run vectors; emit-*-vectors.mts, the groups in audit-vectors/,
                 vector-guard.mts) and consumer-smoke.mjs (CI installs the packed tarball and runs every

@@ -1,4 +1,4 @@
-"""Cross-language parity worker (test harness, not part of the library API).
+"""Cross-language parity worker (test harness: it lives with the tests and never ships in the package).
 
 Reads one JSON request from stdin and writes one JSON response to stdout. Every input is a raw JSON
 TEXT (or raw JSONL BYTES), parsed here by Python's own ``json`` module, because that is the real
@@ -12,23 +12,27 @@ Request (every member optional):
   verify:       [{"chain": json_text, "keyring": {id: key_hex}, "anchor"?: {"count", "last_hash"}}, ...]
   verify_jsonl: [{"data_hex": hex_bytes, "keyring": {...}, "anchor"?: {...}}, ...]
 Response:
+  audit_chain:  the directory audit_chain was imported from, so the parity suite can refuse to compare
+                against any copy but this repository's
   canonicalize: [{"ok": true, "hex": utf8_hex} | {"ok": false, "phase": "parse" | "domain" | "crash"}]
   seal:         [{"ok": true, "entry_hash": hex, "entry_hmac": hex} | {"ok": false, "phase": ...}]
   verify, verify_jsonl: [{"threw": false, "ok": bool, "last_seq": int} | {"threw": true, "error": str}]
 
-Run: python -m audit_chain.parity_worker < request.json
+Run: python python/tests/parity_worker.py < request.json  (audit_chain installed with pip install -e .)
 """
 from __future__ import annotations
 
 import json
+import pathlib
 import sys
 from collections.abc import Callable
 from typing import Any
 
-from .canonical import CanonicalizationError, canonicalize
-from .jsonl import verify_jsonl
-from .seal import GENESIS_HASH, seal_core
-from .verify import ChainAnchor, VerifyResult, verify_chain
+import audit_chain
+from audit_chain.canonical import CanonicalizationError, canonicalize
+from audit_chain.jsonl import verify_jsonl
+from audit_chain.seal import GENESIS_HASH, seal_core
+from audit_chain.verify import ChainAnchor, VerifyResult, verify_chain
 
 Runner = Callable[[dict[str, bytes], ChainAnchor | None], VerifyResult]
 
@@ -92,6 +96,7 @@ def main() -> None:
     seal = request.get("seal")
     sealer = _sealer(bytes.fromhex(seal["key_hex"]), seal["writer_key_id"]) if seal else None
     response = {
+        "audit_chain": str(pathlib.Path(audit_chain.__file__).resolve().parent),
         "canonicalize": [_outcome(t, _canonical_hex) for t in texts],
         "seal": [_outcome(t, sealer) for t in texts] if sealer else [],
         "verify": [_verdict(c, _chain_runner(c)) for c in request.get("verify", [])],

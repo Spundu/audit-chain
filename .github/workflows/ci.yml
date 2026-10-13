@@ -99,10 +99,11 @@ jobs:
       - name: Test
         run: pytest
 
-      - name: Wheel ships the typing marker
+      # The wheel is the library only: the typing marker in, the test tooling (parity worker, tests) out.
+      - name: Wheel ships the typing marker and no test tooling
         run: |
           python -m pip wheel --no-deps -w "$RUNNER_TEMP/wheel" .
-          python -c "import glob, sys, zipfile; names = zipfile.ZipFile(glob.glob(sys.argv[1] + '/*.whl')[0]).namelist(); sys.exit(0 if 'audit_chain/py.typed' in names else 1)" "$RUNNER_TEMP/wheel"
+          python -c "import glob, sys, zipfile; names = zipfile.ZipFile(glob.glob(sys.argv[1] + '/*.whl')[0]).namelist(); bad = [n for n in names if 'parity_worker' in n or 'tests/' in n]; print(bad); sys.exit(0 if 'audit_chain/py.typed' in names and not bad else 1)" "$RUNNER_TEMP/wheel"
 
   parity:
     name: Parity (Node ${{ matrix.node-version }} + Python ${{ matrix.python-version }})

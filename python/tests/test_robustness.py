@@ -327,7 +327,7 @@ def test_every_documented_name_is_exported() -> None:
 
 
 def test_the_parity_worker_counts_a_wrapped_crash_as_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
-    import audit_chain.parity_worker as worker
+    import parity_worker as worker
 
     def wrapped_crash(_value):  # noqa: ANN001, ANN202
         raise CanonicalizationError("value cannot be read as JSON") from RuntimeError("bug")
@@ -407,7 +407,7 @@ def test_verify_chain_requires_a_mapping_keyring_whatever_the_entries(entries: o
 
 
 def test_the_parity_worker_reports_a_python_crash_as_threw(monkeypatch: pytest.MonkeyPatch) -> None:
-    import audit_chain.parity_worker as worker
+    import parity_worker as worker
 
     def crash(*_a, **_k):  # noqa: ANN002, ANN003, ANN202
         raise KeyError("simulated crash")
