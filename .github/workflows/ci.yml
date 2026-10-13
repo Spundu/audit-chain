@@ -94,7 +94,7 @@ jobs:
         run: python -m pip install -e ".[test,lint]"
 
       - name: Lint
-        run: ruff check python
+        run: ruff check python examples
 
       - name: Test
         run: pytest

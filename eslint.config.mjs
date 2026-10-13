@@ -10,6 +10,11 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    // The README quick starts run on Node as written, so they use its global console.
+    files: ['examples/**/*.mjs'],
+    languageOptions: { globals: { console: 'readonly' } },
+  },
+  {
     rules: {
       '@typescript-eslint/no-unused-vars': [
         'warn',

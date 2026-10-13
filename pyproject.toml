@@ -8,8 +8,13 @@ version = "0.1.0"
 description = "Tamper-evident, HMAC-sealed audit chain; byte-identical port of the TypeScript implementation."
 readme = "README.md"
 license = "MIT"
+authors = [{ name = "Davide Pistone Celestino" }]
 requires-python = ">=3.12"
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/Spundu/audit-chain"
+Issues = "https://github.com/Spundu/audit-chain/issues"
 
 [project.optional-dependencies]
 test = ["pytest>=8"]

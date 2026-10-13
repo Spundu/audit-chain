@@ -4,6 +4,13 @@
   "private": false,
   "description": "Tamper-evident, HMAC-sealed audit chain with byte-identical TypeScript and Python implementations, proven by shared test vectors and a cross-language parity suite.",
   "license": "MIT",
+  "author": "Davide Pistone Celestino",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Spundu/audit-chain.git"
+  },
+  "homepage": "https://github.com/Spundu/audit-chain#readme",
+  "bugs": "https://github.com/Spundu/audit-chain/issues",
   "keywords": [
     "audit",
     "audit-log",
@@ -41,7 +48,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
-    "lint": "eslint src test scripts",
+    "lint": "eslint src test scripts examples",
     "test": "vitest run",
     "test:parity": "vitest run --config vitest.parity.config.mts",
     "vectors": "tsx scripts/emit-jcs-vectors.mts && tsx scripts/emit-audit-vectors.mts",

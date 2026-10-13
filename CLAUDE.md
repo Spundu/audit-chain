@@ -3,7 +3,9 @@
 Tamper-evident, HMAC-sealed hash chain, implemented twice: TypeScript (`src/`, CommonJS via
 `module: NodeNext`, relative imports keep the `.js` suffix) and Python (`python/audit_chain/`).
 The two MUST stay byte-identical. `vectors/` is the normative spec; `test/parity/` runs raw JSON
-texts through both languages and fails on any byte or verdict difference.
+texts through both languages and fails on any byte, seal or verdict difference. SPEC.md is the spec
+in prose, THREAT-MODEL.md the guarantees and limits, TESTING.md the suites; README.md shows
+`examples/` and their output exactly, and tests fail if either drifts.
 
 Rules:
 - Never hand-edit `vectors/*.json`. Change the generators (`scripts/emit-*.mts` and the vector groups
@@ -25,4 +27,4 @@ Rules:
 - The canonical domain (safe integers, well-formed Unicode, depth <= 100) is deliberate. Don't widen it
   to floats.
 - Verify before done: `npm run typecheck && npm run lint && npm test && npm run build`, then
-  `pip install -e ".[test,lint]" && pytest && ruff check python`, then `npm run test:parity`.
+  `pip install -e ".[test,lint]" && pytest && ruff check python examples`, then `npm run test:parity`.
