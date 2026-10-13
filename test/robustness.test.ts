@@ -217,7 +217,7 @@ describe('API contracts', () => {
     for (const id of ['key1', 'KEY1', 'Key1 ', '__proto__', 'constructor', 'toString', '']) {
       expect(k.getKey(id)).toBeNull();
     }
-    expect(k.getKey('Key1')).toBe(KEY);
+    expect(k.getKey('Key1')).toEqual(KEY);
     const lower = new InMemoryKeyProvider({ k1: KEY }, 'k1');
     expect(lower.getKey('K1')).toBeNull();
     expect(lower.getKey('k1 ')).toBeNull();

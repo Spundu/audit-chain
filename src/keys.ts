@@ -38,7 +38,12 @@ export function isUsableKey(key: unknown): key is Uint8Array {
   return key instanceof Uint8Array && key.byteLength >= MIN_KEY_BYTES;
 }
 
-/** In-memory keyring for tests and local development only. */
+/**
+ * In-memory keyring for tests and local development only. It keeps its own copy of every key and hands
+ * out copies, so wiping or reusing the caller's buffer later, or writing into a returned one, never
+ * changes the key it seals and verifies with. Keys must be random bytes: a 16-character password
+ * passes the length check with far less than 128 bits of secret.
+ */
 export class InMemoryKeyProvider implements KeyProvider {
   readonly #keys = new Map<string, Buffer>();
   readonly #activeId: string;
@@ -49,7 +54,7 @@ export class InMemoryKeyProvider implements KeyProvider {
       if (!isUsableKey(bytes)) {
         throw new Error(`key '${id}' must be at least ${MIN_KEY_BYTES} bytes (a Buffer, a Uint8Array or a UTF-8 string)`);
       }
-      this.#keys.set(id, Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+      this.#keys.set(id, Buffer.from(bytes)); // a copy of exactly these bytes, never a view of the caller's
     }
     if (!this.#keys.has(activeId)) {
       throw new Error(`activeId '${activeId}' is not present in the keyring`);
@@ -58,7 +63,8 @@ export class InMemoryKeyProvider implements KeyProvider {
   }
 
   getKey(writerKeyId: string): Buffer | null {
-    return this.#keys.get(writerKeyId) ?? null;
+    const key = this.#keys.get(writerKeyId);
+    return key === undefined ? null : Buffer.from(key);
   }
 
   activeKeyId(): string {

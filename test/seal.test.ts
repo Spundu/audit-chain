@@ -74,6 +74,28 @@ describe('InMemoryKeyProvider', () => {
     expect(() => new InMemoryKeyProvider({ k1: Buffer.alloc(32) }, 'k2')).toThrow(/not present/);
   });
 
+  it('keeps its own copy: wiping the buffer it was given changes nothing afterwards', () => {
+    const secret = Buffer.alloc(32, 7);
+    const provider = new InMemoryKeyProvider({ k1: secret }, 'k1');
+    secret.fill(0); // the caller wipes its copy, as it should
+    const entry = appendEntry(null, draft(0), provider);
+    expect(verifyChain([entry], new InMemoryKeyProvider({ k1: Buffer.alloc(32, 7) }, 'k1')).ok).toBe(true);
+    expect(verifyChain([entry], new InMemoryKeyProvider({ k1: Buffer.alloc(32, 0) }, 'k1')).ok).toBe(false);
+  });
+
+  it('hands out copies: writing into a returned key does not change the stored one', () => {
+    const provider = new InMemoryKeyProvider({ k1: Buffer.alloc(32, 7) }, 'k1');
+    provider.getKey('k1')!.fill(0);
+    expect(provider.getKey('k1')).toEqual(Buffer.alloc(32, 7));
+  });
+
+  it('stores exactly the bytes of a view, not the rest of its underlying buffer', () => {
+    const backing = new Uint8Array(40).fill(5);
+    backing.fill(9, 8, 24);
+    const provider = new InMemoryKeyProvider({ k1: backing.subarray(8, 24) }, 'k1');
+    expect(provider.getKey('k1')).toEqual(Buffer.alloc(16, 9));
+  });
+
   it('measures a string key in UTF-8 bytes, not UTF-16 units', () => {
     const e = String.fromCharCode(0xe9); // 2 UTF-8 bytes, 1 UTF-16 unit
     expect(() => new InMemoryKeyProvider({ k: e.repeat(8) }, 'k')).not.toThrow(); // 16 bytes
