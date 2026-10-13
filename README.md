@@ -206,7 +206,8 @@ JSON `null` in a record, as in TypeScript.
   `parseJson`, and the parity suite checks it against Python's.
 - **One writer per file.** `JsonlChainWriter` takes no lock, so run one writer per chain. Each
   `append` is flushed to disk (fsync) before it returns, together with the directory of a file it
-  creates. A restarted writer verifies the file before it appends anything.
+  creates where the platform allows that (Windows does not). A restarted writer verifies the file
+  before it appends anything.
 
 ## Development
 
@@ -224,12 +225,13 @@ suites.
 
 Written with Claude Code (every commit says so) and directed by the author, who chose what to
 extract and publish, and required an independent review, and the fixes it called for, before
-publishing. It has had no independent human review yet. Two rounds of cold review by AI agents
-attacked it: about 100,000 mutated JSON texts, chains and files produced no accepted forgery, and no
-disagreement between the two languages beyond two documented value-level parser differences. Of 85
-realistic bugs planted in the code, the tests caught 82; two of the others cannot change any output,
-and the third is caught now. Everything the reviews confirmed is fixed, each with a test that fails on
-the code before the fix. The details are in [TESTING.md](TESTING.md#how-this-was-verified).
+publishing. It has had no independent human review yet. Three rounds of cold review by AI agents
+attacked it: about 100,000 mutated JSON texts, chains and files produced no accepted forgery, and the
+two verifiers never disagreed beyond two documented value-level parser differences. Of 85 realistic
+bugs planted in the code, the tests caught 82; two of the others cannot change any output, and the
+third is caught now. The reviews did find real problems, including the two writers disagreeing on
+`null`. Everything they confirmed is fixed, each with a test that fails on the code before the fix,
+and the last round found nothing serious. The details are in [TESTING.md](TESTING.md#how-this-was-verified).
 
 ## Layout
 

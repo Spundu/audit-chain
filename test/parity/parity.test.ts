@@ -64,8 +64,8 @@ function tsCanonical(text: string): CanonicalOutcome {
   }
 }
 
-// The sealing primitive, on the same texts: the parsed value is the payload of a genesis entry. (Not
-// appendEntry: Python's append_entry deliberately drops None members, reading None as undefined.)
+// The sealing primitive, on the same texts: the parsed value is the payload of a genesis entry, so any
+// JSON value is covered. (tsAppend below compares the writers themselves.)
 function tsSeal(text: string): SealOutcome {
   let value: unknown;
   try {

@@ -66,8 +66,7 @@ def _canonical_hex(value: Any) -> dict[str, Any]:
 
 
 def _sealer(key: bytes, writer_key_id: str) -> Callable[[Any], dict[str, Any]]:
-    # seal_core, not append_entry: append_entry deliberately drops None members (it reads a Python
-    # None as TypeScript's undefined), so only the sealing primitive is comparable byte for byte.
+    # The sealing primitive alone, on any JSON value (nested as a payload); _appender compares the writers.
     def seal(value: Any) -> dict[str, Any]:
         core = {"payload": value, "prev_hash": GENESIS_HASH, "seq": 0, "writer_key_id": writer_key_id}
         sealed = seal_core(core, key)

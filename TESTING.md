@@ -98,5 +98,11 @@ pool, and that Python's writer dropped `null` members while TypeScript's kept th
 tests that fail on the code before the fix, and the parity suite now compares the two writers
 directly.
 
+**A third round** reviewed those fixes and found nothing at HIGH severity. Its findings are fixed: the
+writer now checks, before writing, that the line it is about to append matches its own seal (a record
+that reads differently each time, such as an unstable Proxy, is refused with nothing written); a failed
+directory fsync is skipped only when the file system cannot do it; and Python again accepts any object
+with `seq` and `entry_hash` items (a `sqlite3.Row`, say) as the previous entry.
+
 The verification and canonicalization logic those reviews attacked has not changed since (one helper
 moved into its own module).
