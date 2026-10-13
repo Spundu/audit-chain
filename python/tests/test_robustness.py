@@ -438,7 +438,7 @@ class _MinimalMapping(Mapping):
     "make", [dict, MappingProxyType, _MinimalMapping], ids=["dict", "MappingProxyType", "Mapping"]
 )
 def test_any_mapping_is_a_keyring(make) -> None:  # noqa: ANN001
-    # README: only a value that is NOT a mapping is a TypeError; any Mapping works, not just dict.
+    # THREAT-MODEL.md (keys): only a value that is NOT a mapping is a TypeError; any Mapping works.
     entries = _chain(2)
     ring = make(dict(RING))
     assert _verdict(entries) == (True, 1)

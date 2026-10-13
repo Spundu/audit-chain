@@ -44,8 +44,9 @@ which is why the file format is canonical and verified byte for byte.
   either chain's file in place of the other, and the writer would continue it. Alternatively, check an
   identifying field (a log name you put in every record, say) yourself.
 - **Key management is out of scope.** Where the key lives, who can read it, and how it rotates are the
-  deployer's problem. `InMemoryKeyProvider` is for tests (it copies the keys it is given and hands
-  out copies). Keys shorter than 16 bytes are refused (for sealing) or treated as unknown (for
+  deployer's problem. `InMemoryKeyProvider` holds keys that are already in memory (test keys, or keys
+  loaded at startup) and keeps its own copies; to fetch keys from a KMS, implement `KeyProvider`. Keys
+  shorter than 16 bytes are refused (for sealing) or treated as unknown (for
   verifying). Use random bytes, 32 of them: the minimum is counted in bytes, so a 16-character
   password passes it with far less than 128 bits of secret. The key must never be readable by the
   producers whose actions are being logged.
@@ -57,8 +58,9 @@ which is why the file format is canonical and verified byte for byte.
   verification then (correctly) reports as broken. After a failed write (disk full, for instance),
   which may leave a partial line, the writer refuses further appends. Restart it: a new writer
   re-verifies the file and refuses a torn tail rather than fusing the next entry onto it. Each
-  `append` is flushed to disk (fsync) before it returns, so a head recorded after it survives a
-  power cut. The Python side has no writer class; the README's Python example verifies before it
+  `append` is flushed to disk (fsync) before it returns, together with the directory of a file it
+  creates (where the platform allows it), so a head recorded after it survives a power cut. The Python
+  side has no writer class; the README's Python example verifies before it
   appends, and fsyncs each line.
 - **Value-level verification of text depends on the parser.** The byte-exact guarantee belongs to
   canonical JSONL. If you parse text yourself and call `verifyChain` / `verify_chain`, the verdict is

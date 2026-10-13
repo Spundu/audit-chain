@@ -93,15 +93,20 @@ A chain file holds one entry per line, and **each line is exactly `canonical(ent
 fields included), UTF-8, terminated by a line feed (`0x0A`). **Every** line needs its line feed,
 including the last one. An unterminated last line counts as torn and breaks the chain at that entry.
 Otherwise anyone could drop the final byte unnoticed, and the next append would fuse two entries
-into one line, destroying an entry that had been sealed legitimately. `verifyJsonl(bytes)` /
-`verify_jsonl(bytes)` decode each line as strict UTF-8, parse it, and
+into one line, destroying an entry that had been sealed legitimately.
+
+`verifyJsonl(bytes)` / `verify_jsonl(bytes)` decode each line as strict UTF-8, parse it, and
 **require the line to equal the canonical form of what it parsed to**, byte for byte: the line is
 never trimmed, never cut at a NUL, never Unicode-normalized first. Only then do they run the checks
-above. The first line that fails breaks the chain at that entry, but the lines **before** it
+above.
+
+The first line that fails breaks the chain at that entry, but the lines **before** it
 are still verified first. A forged early entry is reported at its own index, never hidden behind a
 later bad line of any kind: torn, invalid UTF-8, invalid JSON, not canonical, or over the size limit.
 And no anchor is applied to a file with a bad line, wherever it is. Both ordering rules are pinned by
-vectors: they decide which prefix `lastSeq` vouches for. The order is pinned in BOTH directions. An
+vectors: they decide which prefix `lastSeq` vouches for.
+
+The order is pinned in BOTH directions. An
 earlier failure is never hidden behind a later one: a verifier must not pre-scan the file (for size,
 encoding, syntax, depth or anything else) and report a later line first; the `forged_first`
 derivation catches exactly that. And a later failure never

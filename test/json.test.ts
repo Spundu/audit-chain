@@ -137,7 +137,7 @@ describe('parseJson', () => {
 
   it(`refuses nesting deeper than ${PARSE_MAX_DEPTH} (a stack guard, not the canonical limit)`, () => {
     const nest = (n: number): string => '['.repeat(n) + ']'.repeat(n);
-    expect(PARSE_MAX_DEPTH).toBe(1000); // documented in the README; literal so the test can't drift with it
+    expect(PARSE_MAX_DEPTH).toBe(1000); // documented in SPEC.md; literal so the test can't drift with it
     expect(() => parseJson(nest(1000))).not.toThrow();
     expect(() => parseJson(nest(1001))).toThrow(JsonSyntaxError);
     expect(() => parseJson(nest(PARSE_MAX_DEPTH))).not.toThrow();

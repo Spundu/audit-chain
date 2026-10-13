@@ -105,6 +105,13 @@ jobs:
           python -m pip wheel --no-deps -w "$RUNNER_TEMP/wheel" .
           python -c "import glob, sys, zipfile; names = zipfile.ZipFile(glob.glob(sys.argv[1] + '/*.whl')[0]).namelist(); bad = [n for n in names if 'parity_worker' in n or 'tests/' in n]; print(bad); sys.exit(0 if 'audit_chain/py.typed' in names and not bad else 1)" "$RUNNER_TEMP/wheel"
 
+      # As a user installs it: the built wheel alone, in a clean environment, outside the repository.
+      - name: The wheel installs cleanly and runs the quick start
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel-venv"
+          "$RUNNER_TEMP/wheel-venv/bin/python" -m pip install "$RUNNER_TEMP"/wheel/*.whl
+          cd "$RUNNER_TEMP" && "$RUNNER_TEMP/wheel-venv/bin/python" "$GITHUB_WORKSPACE/examples/quickstart.py"
+
   parity:
     name: Parity (Node ${{ matrix.node-version }} + Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest

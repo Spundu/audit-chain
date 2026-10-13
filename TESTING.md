@@ -40,6 +40,9 @@ always-on test checks the same property (no `Buffer.prototype.indexOf`) cheaply.
     integer-like keys;
   - each of those texts sealed again, as the payload of a genesis entry, by each language's sealing
     primitive: the `entry_hash` and `entry_hmac` must match;
+  - each text that is a JSON object appended as a record, after a real previous entry, by each
+    language's writer (`appendEntry` / `append_entry`): the entries must be identical, `null`
+    members included;
   - ~25 random chains × {reorder, delete, duplicate, truncate, drop genesis, tamper, re-hash without the
     key, re-seal with the wrong key, splice another chain, unknown key id}, with and without an anchor;
   - textual rewrites of valid chains: `1` → `1.0` / `1e0` / `"1"`, pretty-printing, key reordering,
@@ -55,9 +58,10 @@ always-on test checks the same property (no `Buffer.prototype.indexOf`) cheaply.
   and [`examples/quickstart.py`](examples/quickstart.py) and requires the README to show exactly what
   they print; the unit suite requires it to show exactly their source.
 - **The published artifacts.** CI packs the npm tarball, installs it into an empty project, and runs
-  every vector, every derived case and a writer round trip through the installed build, as CommonJS and
-  as an ES module. It also builds the Python wheel and checks that it ships the typed library and
-  nothing else (no tests, no parity worker).
+  every vector, every derived case and a writer round trip through the installed build with
+  `require()`, plus an ES-module import check. It also builds the Python wheel, checks that it ships
+  the typed library and nothing else (no tests, no parity worker), installs it into a clean virtual
+  environment and runs the Python quick start there.
 
 Most of the 4,000-odd test cases are generated from the shared vectors; the hand-written tests are the
 unit tests in `test/` and `python/tests/`.
@@ -84,4 +88,15 @@ only the repository and one lens:
   shape, that the README examples did not run, and that the in-memory key provider shared the caller's
   key buffer. All three are fixed, with tests; the commit history shows each fix.
 
-The verification and canonicalization code those reviews attacked has not changed since.
+**A second round** reviewed the fixes the same way: one agent for correctness, and one checking every
+claim in the docs as a hiring manager would. It found that Node's `appendFileSync` silently skips its
+`flush` option for UTF-8 strings (the writer now writes and fsyncs explicitly, and a test counts the
+real fsync calls), that a malformed previous entry could be extended into a chain that never
+verifies, that a record holding a Proxy could make the writer repeat a `seq`, that a `Map` or an
+`Error` passed as a record was sealed as an empty one, that copied keys sat in Node's shared Buffer
+pool, and that Python's writer dropped `null` members while TypeScript's kept them. Each is fixed, with
+tests that fail on the code before the fix, and the parity suite now compares the two writers
+directly.
+
+The verification and canonicalization logic those reviews attacked has not changed since (one helper
+moved into its own module).

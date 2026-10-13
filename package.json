@@ -2,7 +2,7 @@
   "name": "sealed-audit-chain",
   "version": "0.1.0",
   "private": false,
-  "description": "Tamper-evident, HMAC-sealed audit chain with byte-identical TypeScript and Python implementations, proven by shared test vectors and a cross-language parity suite.",
+  "description": "Tamper-evident, HMAC-sealed audit chain with byte-identical TypeScript and Python implementations, checked by shared test vectors and a cross-language parity suite.",
   "license": "MIT",
   "author": "Davide Pistone Celestino",
   "repository": {

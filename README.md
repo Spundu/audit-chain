@@ -1,10 +1,11 @@
 # audit-chain
 
 A tamper-evident audit log, implemented in **TypeScript** and in **Python**. Each entry is sealed
-with SHA-256 and an HMAC and linked to the entry before it, so changing, reordering, deleting or
-forging an entry makes verification fail at that entry. The two implementations are
-**byte-identical**: either one can write a chain and the other can verify it, which shared test
-vectors and a cross-language parity suite prove.
+with SHA-256 and an HMAC and linked to the entry before it, so changing, reordering, inserting or
+forging an entry, or deleting one before the last, makes verification fail at that entry; cutting
+entries off the end is caught against a head you store elsewhere. The two implementations are
+**byte-identical**: the same record seals to the same entry in both, and either one verifies a chain
+the other wrote, which shared test vectors and a cross-language parity suite check.
 
 **Status:** 0.1.0. Not yet published to npm or PyPI: install it from GitHub (below). No runtime
 dependencies in either language. It was extracted from a private project in which a Node service and
@@ -136,7 +137,7 @@ entry_hash = lowercase_hex( SHA-256(bytes) )
 entry_hmac = lowercase_hex( HMAC-SHA-256(key[writer_key_id], bytes) )
 ```
 
-`canonical` is RFC 8785 (JCS), restricted to a strict domain: integers only (no floats), well-formed
+`canonical` is RFC 8785 (JCS), restricted to a strict domain: safe integers only (no floats), well-formed
 Unicode, at most 100 levels of nesting and 1 MiB. On disk a chain is **canonical JSONL**: one entry
 per line, each line exactly `canonical(entry)`, and verification compares the bytes, so another
 spelling of the same value (extra whitespace, `1.0`, a duplicate key) is refused too. Verification
@@ -167,10 +168,11 @@ Key rotation, keeping two chains apart, and the limits of value-level verificati
   cases. Both test suites assert every one, the generators refuse to write a vector the TypeScript
   implementation disagrees with, and CI regenerates the files and fails on any difference.
 - **The parity suite** gives the same raw JSON texts and files to both languages, each parsing them
-  with its own parser, and requires identical canonical bytes, identical seals and identical
-  verdicts, over more than 2,000 texts and hundreds of attacked chains and files.
-- **CI** runs it all on Node 22, 24 and 26 and Python 3.12, 3.13 and 3.14, and checks the packed npm
-  tarball and the Python wheel as a user would install them. Details in [TESTING.md](TESTING.md).
+  with its own parser, and requires identical canonical bytes, identical entries from both writers and
+  identical verdicts, over more than 2,000 texts and thousands of attacked chains and files.
+- **CI** runs it all on Node 22, 24 and 26 and Python 3.12, 3.13 and 3.14, and installs the packed
+  npm tarball and the built Python wheel into clean environments and runs them there. Details in
+  [TESTING.md](TESTING.md).
 
 ## API
 
@@ -189,7 +191,9 @@ Key rotation, keeping two chains apart, and the limits of value-level verificati
 On failure `lastSeq` / `last_seq` is the last entry the verifier vouches for (`-1` for none). Keys are
 random bytes, at least 16 of them and preferably 32. A key provider must return `null` (`None`) for an
 unknown key id and never throw: the id comes from the file, so anyone who can write the file chooses
-it. `InMemoryKeyProvider` is for tests.
+it. `InMemoryKeyProvider` holds keys that are already in memory (test keys, or keys loaded from a
+secret manager at startup); to fetch keys from a KMS, implement `KeyProvider`. Python's `None` is
+JSON `null` in a record, as in TypeScript.
 
 ## Notes
 
@@ -197,12 +201,12 @@ it. `InMemoryKeyProvider` is for tests.
   at least; reproduced here on Node 24.14) sometimes returns a wrong key for an escaped one-character key,
   depending on what the process parsed before: after `{"a":1,"\\":2}`, the text `{"a":1,"\n":2}` can
   come back with a backslash as its second key.
-  [`scripts/v8-json-parse-repro.mjs`](scripts/v8-json-parse-repro.mjs) reproduces it; we found no
-  upstream report of it as of October 2026. The library parses with its own strict parser,
+  [`scripts/v8-json-parse-repro.mjs`](scripts/v8-json-parse-repro.mjs) reproduces it; no upstream
+  report of it was found as of October 2026. The library parses with its own strict parser,
   `parseJson`, and the parity suite checks it against Python's.
 - **One writer per file.** `JsonlChainWriter` takes no lock, so run one writer per chain. Each
-  `append` is flushed to disk (fsync) before it returns. A restarted writer verifies the file before
-  it appends anything.
+  `append` is flushed to disk (fsync) before it returns, together with the directory of a file it
+  creates. A restarted writer verifies the file before it appends anything.
 
 ## Development
 
@@ -218,12 +222,14 @@ suites.
 
 ## How this was built
 
-Written with Claude Code (every commit says so), and reviewed by AI agents, not by a human. After
-extraction, four independent review agents attacked it cold: about 100,000 mutated JSON texts, chains
-and files produced no accepted forgery and no disagreement between the two languages, and of 85
-realistic bugs planted in the code, the tests caught 82, two of the others cannot change any output,
-and the third is caught now. What they did find is fixed, with tests. The details are in
-[TESTING.md](TESTING.md#how-this-was-verified).
+Written with Claude Code (every commit says so) and directed by the author, who chose what to
+extract and publish, and required an independent review, and the fixes it called for, before
+publishing. It has had no independent human review yet. Two rounds of cold review by AI agents
+attacked it: about 100,000 mutated JSON texts, chains and files produced no accepted forgery, and no
+disagreement between the two languages beyond two documented value-level parser differences. Of 85
+realistic bugs planted in the code, the tests caught 82; two of the others cannot change any output,
+and the third is caught now. Everything the reviews confirmed is fixed, each with a test that fails on
+the code before the fix. The details are in [TESTING.md](TESTING.md#how-this-was-verified).
 
 ## Layout
 
