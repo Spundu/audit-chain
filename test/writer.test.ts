@@ -101,6 +101,16 @@ describe('JsonlChainWriter', () => {
     });
   });
 
+  it('keeps going after a record holding a Proxy: the head is read back from the line it wrote', () => {
+    withTmp((path) => {
+      const writer = new JsonlChainWriter(path, keys);
+      writer.append({ ...draft(0), state: new Proxy({ count: 1 }, {}) }); // structuredClone refuses a Proxy
+      expect(writer.head).toMatchObject({ seq: 0, state: { count: 1 } });
+      expect(writer.append(draft(1)).seq).toBe(1);
+      expect(verifyJsonl(readFileSync(path), keys)).toMatchObject({ ok: true, lastSeq: 1 });
+    });
+  });
+
   it('keeps its head private: mutating a returned entry or the head getter changes nothing', () => {
     withTmp((path) => {
       const writer = new JsonlChainWriter(path, keys);

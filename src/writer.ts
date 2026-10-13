@@ -1,5 +1,7 @@
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, writeSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { isSha256Hex } from './hex.js';
+import { parseJson } from './json.js';
 import { jsonlEntryAt, jsonlLineCount, parseJsonl, toJsonlLine, verifyJsonl } from './jsonl.js';
 import { requireKeyProvider, type KeyProvider } from './keys.js';
 import { GENESIS_HASH, appendEntry, type AuditDraft, type SealedEntry } from './seal.js';
@@ -11,8 +13,38 @@ import type { ChainAnchor } from './verify.js';
 // tail, a tampered entry): appending would seal new entries onto a head that can never verify.
 // Truncation or rollback is NOT detectable here unless a checkpoint (count, head) is supplied.
 // Single-writer is an assumption, not an enforcement: two writers on one file will fork it.
-// append() returns only after its line is flushed to disk (fsync), so a head recorded elsewhere as a
-// checkpoint never points past what a power cut can leave in the file.
+// append() returns only after its line is flushed to disk (fsync), and after the directory entry of a
+// file it created, so a head recorded elsewhere as a checkpoint never points past what a power cut can
+// leave in the file.
+
+// Errors that mean "this platform or file system cannot fsync a directory" (Windows: EPERM). The file's
+// own fsync has already succeeded; failing the append for this would report a write that happened.
+const NO_DIRECTORY_FSYNC = new Set(['EPERM', 'EACCES', 'EISDIR', 'EINVAL', 'ENOTSUP']);
+
+function fsyncDirectoryOf(path: string): void {
+  let fd: number | undefined;
+  try {
+    fd = openSync(dirname(path), 'r');
+    fsyncSync(fd);
+  } catch (err) {
+    if (!NO_DIRECTORY_FSYNC.has((err as NodeJS.ErrnoException).code ?? '')) throw err;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+/** Append bytes and fsync them. (fs.appendFileSync's flush option is skipped for UTF-8 strings in Node 24.) */
+function appendDurably(path: string, bytes: Uint8Array): void {
+  const created = !existsSync(path);
+  const fd = openSync(path, 'a');
+  try {
+    for (let written = 0; written < bytes.length; ) written += writeSync(fd, bytes, written, bytes.length - written);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  if (created) fsyncDirectoryOf(path);
+}
 
 /**
  * Read a chain file and return its entries, but only if the whole file verifies (and, with an anchor,
@@ -20,7 +52,7 @@ import type { ChainAnchor } from './verify.js';
  * exactly the ones verified. A missing file is an empty chain. For a verdict instead of an exception,
  * use verifyJsonl. `T` only types the result: records are not checked against it.
  */
-export function readChain<T extends AuditDraft = AuditDraft>(
+export function readChain<T extends object = AuditDraft>(
   path: string,
   keys: KeyProvider,
   anchor?: ChainAnchor | null,
@@ -36,7 +68,7 @@ function entryHashOf(entry: unknown): unknown {
 }
 
 /** Appends records of any JSON shape. `T` only types `append` and `head`: records are not checked against it. */
-export class JsonlChainWriter<T extends AuditDraft = AuditDraft> {
+export class JsonlChainWriter<T extends object = AuditDraft> {
   readonly #path: string;
   readonly #keys: KeyProvider;
   #prev: SealedEntry<T> | null;
@@ -87,18 +119,20 @@ export class JsonlChainWriter<T extends AuditDraft = AuditDraft> {
   append(draft: T): SealedEntry<T> {
     if (this.#writeFailed) throw new Error('refusing to append after a failed write: restart the writer');
     const entry = appendEntry(this.#prev, draft, this.#keys);
-    const line = toJsonlLine(entry); // outside the latch: an error here wrote nothing
+    const line = toJsonlLine(entry);
+    // The next head is the entry AS WRITTEN, read back from its own line: plain data that later changes
+    // to the caller's objects cannot touch, and that any value canonicalize accepted (a Proxy, say)
+    // cannot make uncopyable. Everything that can fail runs before the write, so an error wrote nothing.
+    const head = parseJson(line.slice(0, -1)) as SealedEntry<T>;
     try {
-      appendFileSync(this.#path, line, { encoding: 'utf8', flush: true });
+      appendDurably(this.#path, Buffer.from(line, 'utf8'));
     } catch (err) {
       // A failed write (disk full, ...) may have left a partial line; appending after it would fuse
       // the next entry onto the torn bytes. A restarted writer re-verifies the file first.
       this.#writeFailed = true;
       throw err;
     }
-    // The head is private state: callers get copies, so mutating a returned entry cannot make the
-    // writer seal the next entry onto a head that no longer matches the file.
-    this.#prev = structuredClone(entry);
+    this.#prev = head;
     return entry;
   }
 
