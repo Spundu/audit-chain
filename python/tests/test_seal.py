@@ -163,6 +163,7 @@ def test_verify_rejects_uppercase_entry_hmac() -> None:
 # -- what append_entry refuses, exactly as TypeScript's appendEntry does ------------------------------
 
 _HEAD = {"seq": 0, "entry_hash": "a" * 64}
+KEYRING_K1 = {"k1": KEY}
 
 
 @pytest.mark.parametrize(
@@ -184,6 +185,19 @@ _HEAD = {"seq": 0, "entry_hash": "a" * 64}
 def test_a_prev_that_could_only_lead_to_a_broken_chain_is_a_type_error(prev: object) -> None:
     with pytest.raises(TypeError):
         append_entry(prev, {"v": 1}, KEY, writer_key_id="k1")  # type: ignore[arg-type]
+
+
+def test_a_row_read_back_from_a_database_works_as_prev() -> None:
+    import sqlite3
+
+    first = append_entry(None, {"v": 1}, KEY, writer_key_id="k1")
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.execute("CREATE TABLE audit (seq INTEGER, entry_hash TEXT)")
+    db.execute("INSERT INTO audit VALUES (?, ?)", (first["seq"], first["entry_hash"]))
+    row = db.execute("SELECT seq, entry_hash FROM audit").fetchone()
+    second = append_entry(row, {"v": 2}, KEY, writer_key_id="k1")
+    assert verify_chain([first, second], KEYRING_K1).ok
 
 
 def test_a_whole_float_seq_counts_as_that_integer_as_in_typescript() -> None:

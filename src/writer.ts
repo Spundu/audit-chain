@@ -1,5 +1,8 @@
+import { createHash } from 'node:crypto';
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { dirname } from 'node:path';
+import process from 'node:process';
+import { canonicalize } from './canonicalize.js';
 import { isSha256Hex } from './hex.js';
 import { parseJson } from './json.js';
 import { jsonlEntryAt, jsonlLineCount, parseJsonl, toJsonlLine, verifyJsonl } from './jsonl.js';
@@ -17,9 +20,15 @@ import type { ChainAnchor } from './verify.js';
 // file it created, so a head recorded elsewhere as a checkpoint never points past what a power cut can
 // leave in the file.
 
-// Errors that mean "this platform or file system cannot fsync a directory" (Windows: EPERM). The file's
-// own fsync has already succeeded; failing the append for this would report a write that happened.
-const NO_DIRECTORY_FSYNC = new Set(['EPERM', 'EACCES', 'EISDIR', 'EINVAL', 'ENOTSUP']);
+// "This file system cannot fsync a directory": skipped, since the file's own fsync has succeeded.
+// Windows cannot fsync a directory at all (EPERM). Elsewhere EPERM and EACCES are permission errors,
+// thrown like any other: the line is on disk, but its directory entry may not be.
+const NO_DIRECTORY_FSYNC = new Set(['EISDIR', 'EINVAL', 'ENOTSUP']);
+
+function cannotFsyncDirectory(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null)?.code ?? '';
+  return NO_DIRECTORY_FSYNC.has(code) || (process.platform === 'win32' && code === 'EPERM');
+}
 
 function fsyncDirectoryOf(path: string): void {
   let fd: number | undefined;
@@ -27,7 +36,7 @@ function fsyncDirectoryOf(path: string): void {
     fd = openSync(dirname(path), 'r');
     fsyncSync(fd);
   } catch (err) {
-    if (!NO_DIRECTORY_FSYNC.has((err as NodeJS.ErrnoException).code ?? '')) throw err;
+    if (!cannotFsyncDirectory(err)) throw err;
   } finally {
     if (fd !== undefined) closeSync(fd);
   }
@@ -124,6 +133,13 @@ export class JsonlChainWriter<T extends object = AuditDraft> {
     // to the caller's objects cannot touch, and that any value canonicalize accepted (a Proxy, say)
     // cannot make uncopyable. Everything that can fail runs before the write, so an error wrote nothing.
     const head = parseJson(line.slice(0, -1)) as SealedEntry<T>;
+    // The line must hold exactly what was hashed. A value that reads differently each time (a Proxy, a
+    // getter) could be canonicalized one way for the seal and another for the line: refuse it here,
+    // on the plain data read back, before anything is written.
+    const { entry_hash: sealedHash, entry_hmac: _hmac, ...core } = head as Record<string, unknown>;
+    if (createHash('sha256').update(canonicalize(core), 'utf8').digest('hex') !== sealedHash) {
+      throw new Error('refusing to append: the record changed while it was being sealed');
+    }
     try {
       appendDurably(this.#path, Buffer.from(line, 'utf8'));
     } catch (err) {

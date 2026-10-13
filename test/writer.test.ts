@@ -111,6 +111,22 @@ describe('JsonlChainWriter', () => {
     });
   });
 
+  it('refuses, writing nothing, a record that reads differently each time (it could never verify)', () => {
+    withTmp((path) => {
+      const writer = new JsonlChainWriter(path, keys);
+      writer.append(draft(0));
+      let reads = 0;
+      const unstable = new Proxy({ n: 0 }, {
+        getOwnPropertyDescriptor: () => ({ value: reads++, writable: true, enumerable: true, configurable: true }),
+      });
+      const before = readFileSync(path);
+      expect(() => writer.append({ ...draft(1), state: unstable })).toThrow(/changed while it was being sealed/);
+      expect(readFileSync(path)).toEqual(before);
+      expect(writer.append(draft(1)).seq).toBe(1); // nothing was written, so the writer carries on
+      expect(verifyJsonl(readFileSync(path), keys)).toMatchObject({ ok: true, lastSeq: 1 });
+    });
+  });
+
   it('keeps its head private: mutating a returned entry or the head getter changes nothing', () => {
     withTmp((path) => {
       const writer = new JsonlChainWriter(path, keys);

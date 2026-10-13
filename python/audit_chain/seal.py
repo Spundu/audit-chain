@@ -66,9 +66,10 @@ def next_state(prev: Mapping[str, Any] | None) -> tuple[int, str]:
     a sealed entry, or the next entry could be sealed but never verify: a TypeError, as in TypeScript."""
     if prev is None:
         return (0, GENESIS_HASH)
-    if not isinstance(prev, Mapping):
-        raise TypeError("prev must be the previous sealed entry, or None")
-    seq, entry_hash = prev.get("seq"), prev.get("entry_hash")
+    try:  # any mapping, or a row object such as sqlite3.Row
+        seq, entry_hash = prev["seq"], prev["entry_hash"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise TypeError("prev must be the previous sealed entry, or None") from exc
     if not _is_seq(seq):
         raise TypeError("prev['seq'] must be a non-negative safe integer")
     if not _is_sha256_hex(entry_hash):
