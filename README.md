@@ -7,7 +7,8 @@ entries off the end is caught against a head you store elsewhere. The two implem
 **byte-identical**: the same record seals to the same entry in both, and either one verifies a chain
 the other wrote, which shared test vectors and a cross-language parity suite check.
 
-**Status:** 0.1.0. Not yet published to npm or PyPI: install it from GitHub (below). No runtime
+**Status:** 0.1.0, [on npm](https://www.npmjs.com/package/sealed-audit-chain). Not yet on PyPI: install
+the Python package from GitHub (below). No runtime
 dependencies in either language. It was extracted from a private project in which a Node service and
 a Python service each keep a chain, and each must be able to check the other's.
 
@@ -21,7 +22,7 @@ answer in [`vectors/`](vectors/), which both implementations must reproduce byte
 ## Install
 
 ```sh
-npm install github:Spundu/audit-chain                    # Node >= 22.12; import from 'sealed-audit-chain'
+npm install sealed-audit-chain                           # Node >= 22.12; import from 'sealed-audit-chain'
 pip install "git+https://github.com/Spundu/audit-chain"  # Python >= 3.12; import audit_chain
 ```
 
